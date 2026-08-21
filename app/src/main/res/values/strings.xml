@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">反懒惰提醒</string>
+
+    <string name="subtitle">仅在手机解锁使用时计时，锁屏/灭屏自动暂停；每累计 5 分钟提醒一次。</string>
+
+    <string name="toggle_label">开始 / 停止监控</string>
+
+    <string name="status_stopped">已停止。打开上方开关开始监控。</string>
+    <string name="status_locked_paused">锁屏中，计时已暂停 ⏸</string>
+    <string name="status_running_fmt">使用中 · 本次已专注 %1$s，距下次提醒还有 %2$s</string>
+
+    <string name="monitor_title">反懒惰监控运行中</string>
+
+    <string name="reminder_title">该停下来想一想了</string>
+    <string name="reminder_text">不要懒惰，想一下现在要做什么</string>
+
+    <string name="channel_monitor">后台监控</string>
+    <string name="channel_monitor_desc">常驻状态通知，显示计时进度</string>
+    <string name="channel_reminder">反懒惰提醒</string>
+    <string name="channel_reminder_desc">每 5 分钟的提醒通知（带提示音与振动）</string>
+
+    <string name="battery_request">申请忽略电池优化（防止后台被杀）</string>
+    <string name="battery_done">已忽略电池优化 ✓</string>
+
+    <string name="footer_hint">提示：若被系统杀后台，请在系统的自启动管理中允许本应用；重启后会自动恢复监控。</string>
+</resources>
