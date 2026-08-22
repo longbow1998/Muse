@@ -129,11 +129,16 @@ class MonitorService : Service() {
 
             // 与兜底闹钟共用同一墙钟增量：服务存活时增量被这里逐秒消费，
             // 闹钟路径自然拿不到剩余量；服务死亡时则全部由闹钟补算。
-            val delta = ReminderEngine.consumeDelta(prefs)
-            if (delta > 0) {
+            // 间隙异常大（进程被冻结/设备休眠）时按锁屏重置，防假提醒。
+            val deltaResult = ReminderEngine.consumeDeltaSanitized(prefs)
+            if (deltaResult.resetProgress) {
+                runtimeRules.forEach { it.elapsedMs = 0 }
+                persistProgress()
+                Log.d(TAG, "tick gap too large -> progress reset")
+            } else if (deltaResult.deltaMs > 0) {
                 for (rt in runtimeRules) {
                     if (!rt.rule.enabled) continue
-                    rt.elapsedMs += delta
+                    rt.elapsedMs += deltaResult.deltaMs
                     if (rt.elapsedMs >= rt.rule.intervalMinutes * 60_000L) {
                         rt.elapsedMs = 0
                         Notifier.fireReminder(
@@ -190,7 +195,7 @@ class MonitorService : Service() {
             System.currentTimeMillis() - savedAt <= ReminderEngine.LOCK_RESET_MS
         val progress = if (withinSession) RuleStore.loadProgress(prefs) else emptyMap()
         runtimeRules = RuleStore.load(this).map { Rt(it, progress[it.id] ?: 0L) }
-        ReminderEngine.resetLockTracking(prefs, unlockedNow = withinSession && isUnlockedNow())
+        ReminderEngine.resetLockTracking(prefs, unlockedNow = isUnlockedNow())
         markWallClock()
         Log.d(TAG, "progress restored: withinSession=$withinSession, rules=${runtimeRules.size}")
     }

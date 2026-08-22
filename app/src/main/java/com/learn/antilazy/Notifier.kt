@@ -67,7 +67,9 @@ object Notifier {
                 .setContentTitle(title)
                 .setContentText(text)
                 .setStyle(Notification.BigTextStyle().bigText(text))
-                .setCategory(Notification.CATEGORY_REMINDER)
+                // 闹钟类目：多数 ROM 对 ALARM 类给予"解锁状态下也接管全屏"的待遇
+                // （REMINDER 类在部分系统只弹横幅，不启全屏页）
+                .setCategory(Notification.CATEGORY_ALARM)
                 .setDefaults(Notification.DEFAULT_SOUND or Notification.DEFAULT_VIBRATE)
                 .setFullScreenIntent(pi, true)
                 .setContentIntent(pi)

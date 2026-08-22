@@ -35,6 +35,9 @@ class ReminderActivity : Activity() {
 
         findViewById<Button>(R.id.btn_dismiss).setOnClickListener { finish() }
 
+        // 点击遮罩任意空白处同样关闭
+        findViewById<android.view.View>(R.id.reminder_root).setOnClickListener { finish() }
+
         handler.postDelayed(autoFinish, AUTO_FINISH_MS)
     }
 

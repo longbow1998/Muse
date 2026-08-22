@@ -242,7 +242,12 @@ class MainActivity : Activity() {
         sb.append(
             when {
                 !active -> getString(R.string.status_stopped)
-                !MonitorService.isRunning -> getString(R.string.status_service_dead)
+                !MonitorService.isRunning ->
+                    if (ReminderEngine.isUnlockedNow(this)) {
+                        getString(R.string.status_service_dead)
+                    } else {
+                        getString(R.string.status_locked_paused)
+                    }
                 !MonitorService.isUnlocked -> getString(R.string.status_locked_paused)
                 else -> {
                     val enabled = uiRules.count { it.enabled }
@@ -397,7 +402,7 @@ class MainActivity : Activity() {
                     Toast.makeText(this, R.string.toast_bad_minutes, Toast.LENGTH_SHORT).show()
                 else -> {
                     val newRule = Rule(
-                        id = existing?.id ?: RuleStore.nextId(uiRules),
+                        id = existing?.id ?: RuleStore.nextId(this, uiRules),
                         intervalMinutes = minutes,
                         text = text,
                         enabled = existing?.enabled ?: true

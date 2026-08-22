@@ -60,11 +60,34 @@ object ReminderEngine {
         prefs.edit().putLong(KEY_LAST_TICK_WALL, System.currentTimeMillis()).apply()
     }
 
-    /** 服务启动恢复进度时调用：以当前真实状态初始化状态机，避免陈旧 locked_at 误触发重置 */
+    /** consumeDelta + 休眠间隙校正的结果 */
+    class DeltaResult(val deltaMs: Long, val resetProgress: Boolean)
+
+    /**
+     * 统一的增量消费入口（服务 tick 与兜底闹钟共用）：
+     * 间隙超过 GAP_SUSPICIOUS_MS 说明期间设备休眠/进程冻结
+     * （正常使用中闹钟与 tick 恒 ≤35s 一跳），该段时间不得计为
+     * 使用量——返回 resetProgress=true 由调用方清零全部进度。
+     */
+    fun consumeDeltaSanitized(prefs: SharedPreferences): DeltaResult {
+        val delta = consumeDelta(prefs)
+        return if (delta > GAP_SUSPICIOUS_MS) {
+            DeltaResult(0L, resetProgress = true)
+        } else {
+            DeltaResult(delta, resetProgress = false)
+        }
+    }
+
+    /**
+     * 服务启动恢复进度时调用：以当前真实状态初始化状态机。
+     * 锁定态启动时把 locked_at 锚定为当前时刻（保守测距）：
+     * 若真实锁屏远长于重启时刻，超时重置依然正确触发；
+     * 解锁态启动则清零，避免陈旧 locked_at 误触发。
+     */
     fun resetLockTracking(prefs: SharedPreferences, unlockedNow: Boolean) {
         prefs.edit()
             .putBoolean(KEY_WAS_UNLOCKED, unlockedNow)
-            .putLong(KEY_LOCKED_AT, 0L)
+            .putLong(KEY_LOCKED_AT, if (unlockedNow) 0L else System.currentTimeMillis())
             .apply()
     }
 
@@ -123,17 +146,15 @@ object ReminderEngine {
             return true
         }
 
-        val delta = consumeDelta(prefs)
-        if (delta < MIN_DELTA_MS) return true
-
-        // 闹钟静默过大：设备休眠（锁屏）所致，按锁屏重置处理而非计入使用量
-        if (delta > GAP_SUSPICIOUS_MS) {
+        val result = consumeDeltaSanitized(prefs)
+        if (result.resetProgress) {
             val zeroed = RuleStore.load(context).associate { it.id to 0L }
             RuleStore.saveProgress(prefs, zeroed)
             prefs.edit().putLong(RuleStore.KEY_SAVED_AT, System.currentTimeMillis()).apply()
-            Log.d("ReminderEngine", "gap ${delta}ms -> treat as lock, progress reset")
+            Log.d("ReminderEngine", "gap too large -> treat as lock, progress reset")
             return true
         }
+        if (result.deltaMs < MIN_DELTA_MS) return true
 
         val rules = RuleStore.load(context)
         val progress = RuleStore.loadProgress(prefs)
@@ -143,7 +164,7 @@ object ReminderEngine {
                 progress[rule.id]?.let { newProgress[rule.id] = it }
                 continue
             }
-            val elapsed = (progress[rule.id] ?: 0L) + delta
+            val elapsed = (progress[rule.id] ?: 0L) + result.deltaMs
             if (elapsed >= rule.intervalMinutes * 60_000L) {
                 newProgress[rule.id] = 0L
                 Notifier.fireReminder(

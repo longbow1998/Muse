@@ -42,6 +42,7 @@ object RuleStore {
     private const val KEY_RULES = "rules_json"
     private const val KEY_PROGRESS = "progress_json"
     private const val KEY_SEEDED = "seeded_v1"
+    private const val KEY_NEXT_RULE_ID = "next_rule_id"
 
     /** 读取全部规则；首次使用自动种入一条默认规则 */
     fun load(context: Context): MutableList<Rule> {
@@ -66,11 +67,13 @@ object RuleStore {
         if (list.isEmpty() && !prefs.getBoolean(KEY_SEEDED, false)) {
             list.add(
                 Rule(
-                    id = nextId(list),
+                    id = nextId(context, list),
                     intervalMinutes = DEFAULT_INTERVAL_MINUTES,
                     text = context.getString(R.string.default_reminder_text)
                 )
             )
+            // 必须立即落盘：否则下次 load 时 seeded=true 却无规则，默认规则消失
+            save(context, list)
             prefs.edit().putBoolean(KEY_SEEDED, true).apply()
         }
         return list
@@ -99,8 +102,15 @@ object RuleStore {
         prefs.edit().putString(KEY_PROGRESS, o.toString()).apply()
     }
 
-    fun nextId(rules: List<Rule>): Long =
-        (rules.maxOfOrNull { it.id } ?: 0L) + 1L
+    /** 规则 id 单调递增，永不复用：防止新规则继承已删规则的残留进度 */
+    fun nextId(context: Context, rules: List<Rule>): Long {
+        val prefs = prefs(context)
+        val maxSeen = (rules.maxOfOrNull { it.id } ?: 0L)
+            .coerceAtLeast(prefs.getLong(KEY_NEXT_RULE_ID, 0L))
+        val next = maxSeen + 1L
+        prefs.edit().putLong(KEY_NEXT_RULE_ID, next).apply()
+        return next
+    }
 
     private fun encode(rules: List<Rule>): String {
         val arr = JSONArray()
