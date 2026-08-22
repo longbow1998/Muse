@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">反懒惰提醒</string>
 
-    <string name="subtitle">仅在手机解锁使用时计时，锁屏/灭屏自动暂停；按你创建的规则到点提醒。</string>
+    <string name="subtitle">仅在手机解锁使用时计时，锁屏/灭屏暂停；锁屏超过 1 分钟自动重新计数。</string>
 
     <string name="toggle_label">开始 / 停止监控</string>
 
@@ -30,6 +30,8 @@
 
     <string name="default_reminder_text">不要懒惰，想一下现在要做什么</string>
     <string name="reminder_title">该停下来想一想了</string>
+    <string name="dismiss_button">知道了，继续</string>
+    <string name="fsr_denied_hint">提示：全屏提醒权限未开启，将退回横幅通知（设置 → 应用 → 反懒惰提醒 → 特殊权限 → 全屏通知）</string>
 
     <string name="test_button">立即测试一次提醒</string>
     <string name="test_reminder_title">测试提醒（链路正常 ✓）</string>

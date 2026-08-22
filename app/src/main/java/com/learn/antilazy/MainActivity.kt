@@ -3,6 +3,7 @@ package com.learn.antilazy
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Typeface
@@ -271,6 +272,13 @@ class MainActivity : Activity() {
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
             sb.append('\n').append(getString(R.string.notif_denied_warn))
+        }
+
+        if (MonitorService.isRunning && Build.VERSION.SDK_INT >= 34) {
+            val nm = getSystemService(NotificationManager::class.java)
+            if (nm.canUseFullScreenIntent() == false) {
+                sb.append('\n').append(getString(R.string.fsr_denied_hint))
+            }
         }
 
         tvStatus.text = sb.toString()

@@ -1,5 +1,6 @@
 package com.learn.antilazy
 
+import android.app.AlarmManager
 import android.app.KeyguardManager
 import android.app.Notification
 import android.app.NotificationChannel
@@ -27,15 +28,27 @@ class MonitorService : Service() {
         private const val TAG = "MonitorService"
 
         private const val TICK_MS = 1000L
-        private const val PERSIST_EVERY_MS = 10_000L
 
-        /** 进程被杀后超过该间隔才视为新的一次使用会话，进度清零 */
-        private const val SESSION_GAP_MS = 2 * 60 * 1000L
+        /** 墙钟对账兜底闹钟的周期 */
+        private const val WATCHDOG_ALARM_MS = 30_000L
+
+        /** 单次补算的进度上限，防止异常大跳 */
+        private const val MAX_CATCHUP_MS = 5 * 60 * 1000L
+
+        /** 锁屏超过该时长，解锁后所有规则进度清零重新计 */
+        const val LOCK_RESET_MS = 60_000L
 
         private const val CHANNEL_ID_MONITOR = "monitor"
         private const val CHANNEL_ID_REMINDER = "reminder"
         private const val NOTIFICATION_ID_MONITOR = 1
         private const val NOTIFICATION_ID_REMINDER_BASE = 1000
+
+        private const val KEY_RUNNING = "running"
+        private const val KEY_SAVED_AT = "saved_at"
+        private const val KEY_LAST_TICK_WALL = "last_tick_wall"
+        private const val KEY_LOCKED_AT = "locked_at"
+        private const val KEY_LAST_REMINDER_AT = "last_reminder_at"
+        private const val KEY_REMIND_COUNT = "remind_count"
 
         @Volatile
         var isRunning = false
@@ -98,17 +111,31 @@ class MonitorService : Service() {
             context.getSharedPreferences(RuleStore.PREFS_NAME, Context.MODE_PRIVATE)
                 .getBoolean(KEY_RUNNING, false)
 
+        /**
+         * 兜底闹钟入口：进程活着就直接按墙钟差补算；
+         * 进程死了但监控应为开启态则拉起服务（restore 时会按锁屏重置规则处理）。
+         * 锁屏中不推进——下次解锁按"锁屏超 1 分钟重置"处理。
+         */
+        fun catchUp(context: Context) {
+            val prefs = context.getSharedPreferences(RuleStore.PREFS_NAME, Context.MODE_PRIVATE)
+            if (!prefs.getBoolean(KEY_RUNNING, false)) return
+            val pm = context.getSystemService(PowerManager::class.java)
+            val km = context.getSystemService(KeyguardManager::class.java)
+            if (!(pm.isInteractive && !km.isKeyguardLocked)) return
+            val service = instance
+            if (service != null) {
+                service.advanceByWallClockDelta()
+            } else {
+                start(context)
+            }
+        }
+
         fun formatDuration(ms: Long): String {
             val totalSeconds = ms / 1000
             val minutes = totalSeconds / 60
             val seconds = totalSeconds % 60
             return if (minutes > 0) "${minutes}分${seconds}秒" else "${seconds}秒"
         }
-
-        private const val KEY_RUNNING = "running"
-        private const val KEY_SAVED_AT = "saved_at"
-        private const val KEY_LAST_REMINDER_AT = "last_reminder_at"
-        private const val KEY_REMIND_COUNT = "remind_count"
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -131,7 +158,7 @@ class MonitorService : Service() {
     private val tickRunnable = object : Runnable {
         override fun run() {
             if (!ticking) return
-
+            markWallClock()
             for (rt in runtimeRules) {
                 if (!rt.rule.enabled) continue
                 rt.elapsedMs += TICK_MS
@@ -140,9 +167,8 @@ class MonitorService : Service() {
                     fireReminder(rt.rule.text, isTest = false)
                 }
             }
-
             val now = SystemClock.elapsedRealtime()
-            if (now - lastPersistAt >= PERSIST_EVERY_MS) {
+            if (now - lastPersistAt >= 10_000L) {
                 persistProgress()
                 lastPersistAt = now
             }
@@ -168,13 +194,14 @@ class MonitorService : Service() {
         isRunning = true
         prefs.edit().putBoolean(KEY_RUNNING, true).apply()
         refreshLockState()
+        TickReceiver.scheduleNext(this)
         return START_STICKY
     }
 
     /**
-     * 进度持久化：若上次进程是被系统硬杀（没走 onDestroy，running 标记仍为 true）
-     * 且距离最后落盘不超过一个会话间隔，则接着上次的进度继续计；
-     * 否则视为新会话从零开始。
+     * 进度持久化与恢复：
+     * - 上次为硬杀（running 标记仍在）且距最后落盘 <= 锁屏重置阈值，接着上次进度继续计；
+     * - 超过阈值视为新会话清零（与"锁屏超 1 分钟重置"语义一致）。
      */
     private fun restoreOrResetProgress() {
         prefs = getSharedPreferences(RuleStore.PREFS_NAME, MODE_PRIVATE)
@@ -182,11 +209,12 @@ class MonitorService : Service() {
         val savedAt = prefs.getLong(KEY_SAVED_AT, 0L)
         val withinSession = wasRunning &&
             savedAt > 0 &&
-            System.currentTimeMillis() - savedAt < SESSION_GAP_MS
+            System.currentTimeMillis() - savedAt <= LOCK_RESET_MS
         val progress = if (withinSession) RuleStore.loadProgress(prefs) else emptyMap()
         runtimeRules = RuleStore.load(this).map { Rt(it, progress[it.id] ?: 0L) }
         lastReminderAt = prefs.getLong(KEY_LAST_REMINDER_AT, 0L)
         reminderCount = prefs.getInt(KEY_REMIND_COUNT, 0)
+        markWallClock()
         Log.d(TAG, "progress restored: withinSession=$withinSession, rules=${runtimeRules.size}")
     }
 
@@ -203,6 +231,35 @@ class MonitorService : Service() {
         prefs.edit().putBoolean(KEY_RUNNING, false).apply()
         instance = null
         super.onDestroy()
+    }
+
+    private fun markWallClock() {
+        prefs.edit().putLong(KEY_LAST_TICK_WALL, System.currentTimeMillis()).apply()
+    }
+
+    /**
+     * 兜底路径：按上次 tick 的墙钟时间差一次性补算所有启用规则的进度。
+     * 与秒级 tick 写同一个 KEY_LAST_TICK_WALL，天然去重。
+     */
+    private fun advanceByWallClockDelta() {
+        handler.post {
+            if (!ticking) return@post
+            val last = prefs.getLong(KEY_LAST_TICK_WALL, 0L)
+            val delta = (System.currentTimeMillis() - last).coerceIn(0L, MAX_CATCHUP_MS)
+            if (delta < TICK_MS) return@post
+            markWallClock()
+            for (rt in runtimeRules) {
+                if (!rt.rule.enabled) continue
+                rt.elapsedMs += delta
+                if (rt.elapsedMs >= rt.rule.intervalMinutes * 60_000L) {
+                    rt.elapsedMs = 0
+                    fireReminder(rt.rule.text, isTest = false)
+                }
+            }
+            persistProgress()
+            updateForegroundNotification()
+            Log.d(TAG, "catch-up advanced $delta ms")
+        }
     }
 
     private fun persistProgress() {
@@ -229,13 +286,24 @@ class MonitorService : Service() {
     }
 
     /**
-     * 核心规则：屏幕亮着 且 keyguard 已解锁（真正在使用中）才计时；
-     * 锁屏或灭屏时暂停累计，解锁后继续。
+     * 核心规则：
+     * 1. 屏幕亮 且 keyguard 已解锁才计时；锁屏/灭屏暂停累计；
+     * 2. 本次锁屏时长超过 LOCK_RESET_MS 时，解锁后所有规则进度清零重新计。
      */
     private fun refreshLockState() {
         val powerManager = getSystemService(PowerManager::class.java)
         val keyguardManager = getSystemService(KeyguardManager::class.java)
-        isUnlocked = powerManager.isInteractive && !keyguardManager.isKeyguardLocked
+        val unlocked = powerManager.isInteractive && !keyguardManager.isKeyguardLocked
+        if (unlocked && !isUnlocked) {
+            // 从锁定恢复：检查本次锁屏是否超过重置阈值
+            val lockedAt = prefs.getLong(KEY_LOCKED_AT, 0L)
+            if (lockedAt > 0 && System.currentTimeMillis() - lockedAt > LOCK_RESET_MS) {
+                runtimeRules.forEach { it.elapsedMs = 0 }
+                persistProgress()
+                Log.d(TAG, "lock exceeded ${LOCK_RESET_MS}ms -> all progress reset")
+            }
+        }
+        isUnlocked = unlocked
         Log.d(TAG, "lock state changed: unlocked=$isUnlocked")
         if (isUnlocked) startTicking() else pauseTicking()
     }
@@ -251,6 +319,7 @@ class MonitorService : Service() {
         if (!ticking) return
         ticking = false
         handler.removeCallbacks(tickRunnable)
+        prefs.edit().putLong(KEY_LOCKED_AT, System.currentTimeMillis()).apply()
         persistProgress()
         updateForegroundNotification()
     }
@@ -267,28 +336,34 @@ class MonitorService : Service() {
         )
         getSystemService(NotificationManager::class.java)
             .notify(reminderId++, buildReminderNotification(title, text))
-        Log.d(TAG, "reminder fired: isTest=$isTest, count=$reminderCount, text=$text")
+        Log.d(TAG, "reminder fired: isTest=$isTest, count=$reminderCount")
     }
 
-    private fun reminderContentIntent(): PendingIntent =
+    private fun reminderContentIntent(text: String, requestCode: Int): PendingIntent =
         PendingIntent.getActivity(
             this,
-            0,
-            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            requestCode,
+            Intent(this, ReminderActivity::class.java)
+                .putExtra(ReminderActivity.EXTRA_TEXT, text)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-    private fun buildReminderNotification(title: String, text: String): Notification =
-        Notification.Builder(this, CHANNEL_ID_REMINDER)
+    /** 全屏提醒：到点直接弹整页卡片盖在任何应用之上；不支持时退回普通横幅 */
+    private fun buildReminderNotification(title: String, text: String): Notification {
+        val fullScreenPi = reminderContentIntent(text, reminderId + 50000)
+        return Notification.Builder(this, CHANNEL_ID_REMINDER)
             .setSmallIcon(R.drawable.ic_stat_reminder)
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(Notification.BigTextStyle().bigText(text))
             .setCategory(Notification.CATEGORY_REMINDER)
             .setDefaults(Notification.DEFAULT_SOUND or Notification.DEFAULT_VIBRATE)
-            .setContentIntent(reminderContentIntent())
+            .setFullScreenIntent(fullScreenPi, true)
+            .setContentIntent(fullScreenPi)
             .setAutoCancel(true)
             .build()
+    }
 
     private fun createNotificationChannels() {
         val manager = getSystemService(NotificationManager::class.java)
@@ -325,7 +400,6 @@ class MonitorService : Service() {
             .setContentText(fgStatusText())
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setContentIntent(reminderContentIntent())
             .build()
 
     private fun updateForegroundNotification() {

@@ -7,6 +7,7 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <application
         android:allowBackup="true"
@@ -23,6 +24,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 全屏提醒页：不进最近任务，避免干扰正常任务栈 -->
+        <activity
+            android:name=".ReminderActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@style/Theme.Reminder" />
 
         <service
             android:name=".MonitorService"
@@ -41,5 +49,11 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <!-- 兜底对账闹钟：进程被杀也能拉起补算进度 -->
+        <receiver
+            android:name=".TickReceiver"
+            android:enabled="true"
+            android:exported="false" />
     </application>
 </manifest>
