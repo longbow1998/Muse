@@ -61,54 +61,70 @@ object ReminderEngine {
             .apply()
     }
 
+    /** 锁定状态机的转换结果 */
+    class LockState(
+        /** 刚经历一次超过 LOCK_RESET_MS 的锁屏，进度应清零 */
+        val reset: Boolean,
+        /** 刚发生"锁定→解锁"转换（无论时长），本轮不应补算增量 */
+        val justUnlocked: Boolean
+    )
+
     /**
-     * 锁定状态机。返回 true 表示刚经历一次超过 LOCK_RESET_MS 的锁屏，
-     * 调用方应将所有规则进度清零。
+     * 锁定状态机（跨进程生死跟踪"解锁→锁定→解锁"转换）。
+     * 返回 LockState：reset=应清零全部进度；justUnlocked=刚解锁，不应补算增量。
      */
-    fun applyLockTransition(prefs: SharedPreferences, unlockedNow: Boolean): Boolean {
+    fun applyLockTransition(prefs: SharedPreferences, unlockedNow: Boolean): LockState {
         val wasUnlocked = prefs.getBoolean(KEY_WAS_UNLOCKED, false)
         var reset = false
+        var justUnlocked = false
         if (!unlockedNow && wasUnlocked) {
             prefs.edit().putLong(KEY_LOCKED_AT, System.currentTimeMillis()).apply()
         } else if (unlockedNow && !wasUnlocked) {
+            justUnlocked = true
             val lockedAt = prefs.getLong(KEY_LOCKED_AT, 0L)
             reset = lockedAt > 0 && System.currentTimeMillis() - lockedAt > LOCK_RESET_MS
         }
         if (wasUnlocked != unlockedNow) {
             prefs.edit().putBoolean(KEY_WAS_UNLOCKED, unlockedNow).apply()
         }
-        return reset
+        return LockState(reset, justUnlocked)
     }
 
     /**
      * 兜底闹钟主入口（进程死活均可）。返回 false 表示监控已停用，
      * 调用方应停止闹钟链。
+     *
+     * 服务存活时直接跳过：秒级 tick 是唯一计数权威，
+     * 闹钟若基于滞后落盘值对账会导致重复提醒/进度回退。
      */
     fun onAlarm(context: Context): Boolean {
         val prefs = prefs(context)
         if (!prefs.getBoolean(RuleStore.KEY_RUNNING, false)) return false
+        if (MonitorService.isAlive()) return true
 
         val unlocked = isUnlockedNow(context)
-        val reset = applyLockTransition(prefs, unlocked)
+        val state = applyLockTransition(prefs, unlocked)
         if (!unlocked) return true // 锁屏中不推进；解锁后按重置规则处理
+        if (state.justUnlocked) {
+            // 刚解锁：重新锚定墙钟，锁屏期间（无论是否超过重置阈值）不计入使用量
+            markWallClock(prefs)
+            if (state.reset) {
+                val zeroed = RuleStore.load(context).associate { it.id to 0L }
+                RuleStore.saveProgress(prefs, zeroed)
+                prefs.edit().putLong(RuleStore.KEY_SAVED_AT, System.currentTimeMillis()).apply()
+            }
+            return true
+        }
 
         val delta = consumeDelta(prefs)
-        if (!reset && delta < MIN_DELTA_MS) return true
+        if (delta < MIN_DELTA_MS) return true
 
         val rules = RuleStore.load(context)
         val progress = RuleStore.loadProgress(prefs)
         val newProgress = mutableMapOf<Long, Long>()
         for (rule in rules) {
-            if (!rule.enabled) {
-                progress[rule.id]?.let { newProgress[rule.id] = it }
-                continue
-            }
-            if (reset) {
-                newProgress[rule.id] = 0L
-                continue
-            }
             val elapsed = (progress[rule.id] ?: 0L) + delta
-            if (elapsed >= rule.intervalMinutes * 60_000L) {
+            if (rule.enabled && elapsed >= rule.intervalMinutes * 60_000L) {
                 newProgress[rule.id] = 0L
                 Notifier.fireReminder(
                     context,
@@ -117,7 +133,7 @@ object ReminderEngine {
                 )
                 Log.d("ReminderEngine", "alarm fired reminder id=${rule.id}")
             } else {
-                newProgress[rule.id] = elapsed
+                newProgress[rule.id] = elapsed.coerceAtMost(rule.intervalMinutes * 60_000L)
             }
         }
         RuleStore.saveProgress(prefs, newProgress)

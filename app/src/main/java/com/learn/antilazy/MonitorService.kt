@@ -43,6 +43,9 @@ class MonitorService : Service() {
 
         fun start(context: Context): Boolean =
             try {
+                // 清除"用户主动停止"标记：此后若服务被系统回收，兜底闹钟应继续计时
+                ReminderEngine.prefs(context).edit()
+                    .putBoolean(RuleStore.KEY_USER_STOPPED, false).apply()
                 context.startForegroundService(Intent(context, MonitorService::class.java))
                 true
             } catch (e: Exception) {
@@ -51,8 +54,14 @@ class MonitorService : Service() {
             }
 
         fun stop(context: Context) {
+            // 标记用户主动停止：onDestroy 才允许清除运行标记，终止闹钟链
+            ReminderEngine.prefs(context).edit()
+                .putBoolean(RuleStore.KEY_USER_STOPPED, true).apply()
             context.stopService(Intent(context, MonitorService::class.java))
         }
+
+        /** 服务实例是否存活（决定兜底闹钟是否接管计数） */
+        fun isAlive(): Boolean = instance != null
 
         /** UI 展示快照：服务活着读内存（秒级新鲜度），死了回退到落盘进度 */
         fun snapshot(context: Context): List<RuleView> {
@@ -196,7 +205,14 @@ class MonitorService : Service() {
         isRunning = false
         isUnlocked = false
         persistProgress()
-        prefs.edit().putBoolean(RuleStore.KEY_RUNNING, false).apply()
+        // 仅用户主动停止才终止监控；系统回收（划卡/内存回收）时
+        // 保留 running 标记，由兜底闹钟继续计时、START_STICKY 尝试复活
+        val userStopped = prefs.getBoolean(RuleStore.KEY_USER_STOPPED, false)
+        if (userStopped) {
+            prefs.edit().putBoolean(RuleStore.KEY_RUNNING, false).apply()
+        } else {
+            ReminderEngine.markWallClock(prefs)
+        }
         instance = null
         super.onDestroy()
     }
@@ -242,8 +258,8 @@ class MonitorService : Service() {
      */
     private fun refreshLockState() {
         val unlocked = isUnlockedNow()
-        val reset = ReminderEngine.applyLockTransition(prefs, unlocked)
-        if (reset && unlocked) {
+        val state = ReminderEngine.applyLockTransition(prefs, unlocked)
+        if (state.reset && unlocked) {
             runtimeRules.forEach { it.elapsedMs = 0 }
             Log.d(TAG, "lock exceeded ${ReminderEngine.LOCK_RESET_MS}ms -> progress reset")
         }

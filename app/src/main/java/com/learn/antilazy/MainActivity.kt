@@ -111,7 +111,9 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         ensureNotificationPermission()
-        desiredRunning = MonitorService.isRunning
+        // 以落盘的运行标记为准：进程被杀后 companion 变量失真，
+        // 而兜底闹钟仍在按标记计时
+        desiredRunning = MonitorService.wasRunningBefore(this)
         switchToggle.isChecked = desiredRunning
         handler.post(statusUpdater)
         renderBatteryButton()
@@ -235,10 +237,12 @@ class MainActivity : Activity() {
         updateCountdownTexts()
 
         val sb = StringBuilder()
+        val active = MonitorService.wasRunningBefore(this)
 
         sb.append(
             when {
-                !MonitorService.isRunning -> getString(R.string.status_stopped)
+                !active -> getString(R.string.status_stopped)
+                !MonitorService.isRunning -> getString(R.string.status_service_dead)
                 !MonitorService.isUnlocked -> getString(R.string.status_locked_paused)
                 else -> {
                     val enabled = uiRules.count { it.enabled }
@@ -261,27 +265,29 @@ class MainActivity : Activity() {
             sb.append('\n').append(getString(R.string.notif_denied_warn))
         }
 
-        if (MonitorService.isRunning && Build.VERSION.SDK_INT >= 34) {
+        if (active && Build.VERSION.SDK_INT >= 34) {
             val nm = getSystemService(NotificationManager::class.java)
             if (nm.canUseFullScreenIntent() == false) {
                 sb.append('\n').append(getString(R.string.fsr_denied_hint))
             }
         }
 
-        val last = ReminderEngine.prefs(this).getLong(RuleStore.KEY_LAST_REMINDER_AT, 0L)
-        sb.append('\n')
-        sb.append(
-            if (last > 0) {
-                val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(last))
-                getString(
-                    R.string.status_last_reminder_fmt,
-                    time,
-                    ReminderEngine.prefs(this).getInt(RuleStore.KEY_REMIND_COUNT, 0)
-                )
-            } else {
-                getString(R.string.status_no_reminder_yet)
-            }
-        )
+        if (active) {
+            val last = ReminderEngine.prefs(this).getLong(RuleStore.KEY_LAST_REMINDER_AT, 0L)
+            sb.append('\n')
+            sb.append(
+                if (last > 0) {
+                    val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(last))
+                    getString(
+                        R.string.status_last_reminder_fmt,
+                        time,
+                        ReminderEngine.prefs(this).getInt(RuleStore.KEY_REMIND_COUNT, 0)
+                    )
+                } else {
+                    getString(R.string.status_no_reminder_yet)
+                }
+            )
+        }
 
         tvStatus.text = sb.toString()
     }

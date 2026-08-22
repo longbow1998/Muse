@@ -25,11 +25,12 @@
             </intent-filter>
         </activity>
 
-        <!-- 全屏提醒页：不进最近任务，避免干扰正常任务栈 -->
+        <!-- 全屏提醒页：独立任务栈，关闭后回到用户之前的应用；不进最近任务 -->
         <activity
             android:name=".ReminderActivity"
             android:excludeFromRecents="true"
             android:exported="false"
+            android:taskAffinity=""
             android:theme="@style/Theme.Reminder" />
 
         <service

@@ -7,6 +7,7 @@
     <string name="toggle_label">开始 / 停止监控</string>
 
     <string name="status_stopped">已停止。打开上方开关开始监控。</string>
+    <string name="status_service_dead">监控开启中 · 服务被系统回收，兜底闹钟计时中（打开本页自动恢复实时服务）</string>
     <string name="status_locked_paused">锁屏中，计时已暂停 ⏸</string>
     <string name="master_summary_fmt">使用中 · 已启用 %1$d 条规则，最近一条 %2$s 后提醒</string>
     <string name="no_enabled_rules">没有启用中的规则，请新增或开启</string>

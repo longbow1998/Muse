@@ -33,6 +33,7 @@ object RuleStore {
 
     // 与服务、引擎、通知器共享的偏好键
     const val KEY_RUNNING = "running"
+    const val KEY_USER_STOPPED = "user_stopped"
     const val KEY_SAVED_AT = "saved_at"
     const val KEY_LAST_REMINDER_AT = "last_reminder_at"
     const val KEY_REMIND_COUNT = "remind_count"
