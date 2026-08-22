@@ -42,6 +42,7 @@ class MainActivity : Activity() {
     private lateinit var btnBattery: Button
     private lateinit var btnTest: Button
     private lateinit var btnAddRule: Button
+    private lateinit var btnGuide: Button
     private lateinit var llRules: LinearLayout
 
     private val handler = Handler(Looper.getMainLooper())
@@ -76,6 +77,7 @@ class MainActivity : Activity() {
         btnBattery = findViewById(R.id.btn_battery)
         btnTest = findViewById(R.id.btn_test)
         btnAddRule = findViewById(R.id.btn_add_rule)
+        btnGuide = findViewById(R.id.btn_guide)
         llRules = findViewById(R.id.ll_rules)
 
         switchToggle.setOnCheckedChangeListener { _, checked ->
@@ -93,12 +95,14 @@ class MainActivity : Activity() {
         btnBattery.setOnClickListener { requestIgnoreBatteryOptimizations() }
 
         btnTest.setOnClickListener {
-            if (!MonitorService.isRunning || !MonitorService.sendTestReminder()) {
+            if (!MonitorService.sendTestReminder(this)) {
                 Toast.makeText(this, R.string.test_hint_toast, Toast.LENGTH_SHORT).show()
             }
         }
 
         btnAddRule.setOnClickListener { openEditor(existing = null) }
+
+        findViewById<Button>(R.id.btn_guide).setOnClickListener { showKeepAliveGuide() }
 
         uiRules = RuleStore.load(this)
         rebuildRows()
@@ -120,11 +124,7 @@ class MainActivity : Activity() {
 
     /** 拉取服务的实时快照（各规则已计时长），必要时同步规则结构 */
     private fun refreshFromService() {
-        snapElapsed = if (MonitorService.isRunning) {
-            MonitorService.snapshot().associate { it.id to it.elapsedMs }
-        } else {
-            emptyMap()
-        }
+        snapElapsed = MonitorService.snapshot(this).associate { it.id to it.elapsedMs }
         syncRowsIfNeeded()
     }
 
@@ -255,19 +255,6 @@ class MainActivity : Activity() {
             }
         )
 
-        if (MonitorService.isRunning) {
-            sb.append('\n')
-            val last = MonitorService.lastReminderAt
-            sb.append(
-                if (last > 0) {
-                    val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(last))
-                    getString(R.string.status_last_reminder_fmt, time, MonitorService.reminderCount)
-                } else {
-                    getString(R.string.status_no_reminder_yet)
-                }
-            )
-        }
-
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
@@ -281,7 +268,40 @@ class MainActivity : Activity() {
             }
         }
 
+        val last = ReminderEngine.prefs(this).getLong(RuleStore.KEY_LAST_REMINDER_AT, 0L)
+        sb.append('\n')
+        sb.append(
+            if (last > 0) {
+                val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(last))
+                getString(
+                    R.string.status_last_reminder_fmt,
+                    time,
+                    ReminderEngine.prefs(this).getInt(RuleStore.KEY_REMIND_COUNT, 0)
+                )
+            } else {
+                getString(R.string.status_no_reminder_yet)
+            }
+        )
+
         tvStatus.text = sb.toString()
+    }
+
+    private fun showKeepAliveGuide() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.keepalive_title)
+            .setMessage(R.string.keepalive_steps)
+            .setPositiveButton(R.string.keepalive_ok, null)
+            .setNeutralButton(R.string.keepalive_open_settings) { _, _ ->
+                runCatching {
+                    startActivity(
+                        Intent(
+                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.parse("package:$packageName")
+                        )
+                    )
+                }
+            }
+            .show()
     }
 
     // ---------- 编辑对话框 ----------

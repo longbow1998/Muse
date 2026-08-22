@@ -111,3 +111,28 @@
    新增 USE_FULL_SCREEN_INTENT 权限。
 3. **锁屏超 1 分钟重置**：LOCK_RESET_MS=60s 统一三处语义——暂停时记录 KEY_LOCKED_AT，
    解锁时超阈值全部清零；进程恢复 restore 的会话判定同步改为该阈值（原 2 分钟）。
+
+### 2026-08-22 修复（v1.3）：后台 7 秒被杀后彻底停摆
+
+真机反馈：切后台约 7 秒服务即被 ROM 杀死，倒计时永久停止。
+
+根因：
+1. ROM 对无后台权限应用激进杀进程（需用户授权，见保活指南）；
+2. 兜底闹钟复活路径失效——Android 12+ 禁止从后台启动前台服务，
+   而我们用的 setAndAllowWhileIdle 非精确闹钟不在豁免清单内，
+   startForegroundService 抛 ForegroundServiceStartNotAllowedException
+   → 服务死了永远起不来。
+
+重构：计时核心抽为 ReminderEngine + Notifier，发提醒与推进进度
+完全脱离 Service 实例：
+
+- 墙钟增量单一消费点 consumeDelta：秒级 tick 与 30 秒兜底闹钟共用同一
+  KEY_LAST_TICK_WALL，谁先跑谁消费，天然去重；服务存活时秒级消费、
+  进程死亡时由闹钟一次性补算（上限 5 分钟）；
+- TickReceiver.onAlarm 直接读写落盘规则/进度并经 Notifier 弹全屏提醒，
+  全程无需拉起服务；监控停用后闹钟链自动终止；
+- 锁定状态机 applyLockTransition 落盘跨进程生死跟踪，锁屏重置在任意路径生效；
+  锁定切换处重新锚定墙钟，防止锁屏时长被误计为使用量；
+- UI 快照 snapshot(context) 服务死后自动回退读落盘进度，倒计时仍可见；
+- 新增「后台保活指南」按钮：电池优化白名单 / 自启动 / 省电无限制 /
+  最近任务加锁 / 全屏通知权限的分机型操作步骤。

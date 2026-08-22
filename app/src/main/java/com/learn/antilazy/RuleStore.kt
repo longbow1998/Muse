@@ -31,6 +31,13 @@ object RuleStore {
     const val PREFS_NAME = "anti_lazy"
     const val DEFAULT_INTERVAL_MINUTES = 5
 
+    // 与服务、引擎、通知器共享的偏好键
+    const val KEY_RUNNING = "running"
+    const val KEY_SAVED_AT = "saved_at"
+    const val KEY_LAST_REMINDER_AT = "last_reminder_at"
+    const val KEY_REMIND_COUNT = "remind_count"
+    const val KEY_NEXT_NOTIF_ID = "next_notif_id"
+
     private const val KEY_RULES = "rules_json"
     private const val KEY_PROGRESS = "progress_json"
     private const val KEY_SEEDED = "seeded_v1"

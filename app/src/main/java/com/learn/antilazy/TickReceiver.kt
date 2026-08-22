@@ -8,18 +8,21 @@ import android.content.Intent
 import android.os.SystemClock
 
 /**
- * 兜底闹钟：即使服务进程被系统杀掉，也会周期性被拉起做墙钟对账，
- * 保证"解锁使用中"的时长不丢。锁屏中自动跳过（下次解锁按重置规则处理）。
+ * 兜底闹钟：即使服务进程被系统杀掉，也会周期性被拉起。
+ * ReminderEngine.onAlarm 直接用落盘数据补算进度并弹提醒，
+ * 不需要服务存活；监控停用后闹钟链自动终止。
  */
 class TickReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        MonitorService.catchUp(context)
-        scheduleNext(context)
+        if (ReminderEngine.onAlarm(context)) {
+            scheduleNext(context)
+        }
     }
 
     companion object {
         private const val REQUEST_CODE = 1001
+        private const val INTERVAL_MS = 30_000L
 
         /** 非唤醒闹钟：灭屏期间顺延，亮屏使用时准时触发 */
         fun scheduleNext(context: Context) {
@@ -32,7 +35,7 @@ class TickReceiver : BroadcastReceiver() {
             )
             am.setAndAllowWhileIdle(
                 AlarmManager.ELAPSED_REALTIME,
-                SystemClock.elapsedRealtime() + 30_000L,
+                SystemClock.elapsedRealtime() + INTERVAL_MS,
                 pi
             )
         }

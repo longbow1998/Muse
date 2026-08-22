@@ -53,6 +53,12 @@
     <string name="battery_request">申请忽略电池优化（防止后台被杀）</string>
     <string name="battery_done">已忽略电池优化 ✓</string>
 
+    <string name="guide_button">后台保活指南（被杀必看）</string>
+    <string name="keepalive_title">让提醒稳定运行</string>
+    <string name="keepalive_ok">知道了</string>
+    <string name="keepalive_open_settings">去应用设置</string>
+    <string name="keepalive_steps">① 点下方「申请忽略电池优化」并选择允许\n\n② 系统设置 → 应用管理 → 反懒惰提醒：开启「自启动」\n\n③ 省电策略设为无限制：\n· 小米/红米：应用信息 → 省电策略 → 无限制\n· 华为/荣耀：启动管理 → 手动管理，三项全开\n· OPPO/vivo：耗电管理 → 允许后台运行\n\n④ 最近任务界面下拉本应用卡片加锁，防止一键清理被杀\n\n⑤ 保持通知权限与「全屏通知/悬浮通知」开启\n\n※ 即使进程仍被杀，兜底闹钟也会到点弹出提醒；只是通知栏的实时倒计时需要服务存活才刷新。</string>
+
     <string name="start_failed">监控启动失败，请重试</string>
 
     <string name="footer_hint">提示：点击规则可编辑/删除；若被系统杀后台，请在自启动管理中允许本应用；重启后会自动恢复监控。</string>
