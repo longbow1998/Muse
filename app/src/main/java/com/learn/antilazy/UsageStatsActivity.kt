@@ -1,6 +1,5 @@
 package com.learn.antilazy
 
-import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
@@ -19,7 +18,7 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 /** 今日/近7天/近30天使用统计：柱状图趋势 + 各 App 占比列表。数据仅在本机计算。 */
-class UsageStatsActivity : Activity() {
+class UsageStatsActivity : androidx.appcompat.app.AppCompatActivity() {
 
     private companion object {
         val TAB_IDS = intArrayOf(R.id.tv_tab_day, R.id.tv_tab_week, R.id.tv_tab_month)

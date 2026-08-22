@@ -1,6 +1,5 @@
 package com.learn.antilazy
 
-import android.app.Activity
 import android.content.Context
 import android.os.Bundle
 import android.os.Handler
@@ -9,7 +8,7 @@ import android.widget.Button
 import android.widget.TextView
 
 /** Reminder detail opened when the user taps a reminder notification. */
-class ReminderActivity : Activity() {
+class ReminderActivity : androidx.appcompat.app.AppCompatActivity() {
 
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(LanguageUtils.wrap(newBase))

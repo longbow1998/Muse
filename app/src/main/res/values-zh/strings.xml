@@ -5,11 +5,14 @@
     <string name="subtitle">仅在手机解锁使用时计时，锁屏/灭屏暂停；锁屏超过 1 分钟自动重新计数。</string>
 
     <string name="toggle_label">开始 / 停止监控</string>
+<string name="menu_more">更多选项</string>
+    <string name="usage_entry_sub">趋势图 · 各App占比 · 耗电估算</string>
+    <string name="status_head_running">使用中 · 生效规则：%1$d</string>
+    <string name="status_head_recovering">服务恢复中…</string>
 
     <string name="status_stopped">已停止。打开上方开关开始监控。</string>
     <string name="status_service_dead">监控开启中 · 服务被系统回收，正在尝试恢复（恢复前计时暂停）</string>
     <string name="status_locked_paused">锁屏中，计时已暂停 ⏸</string>
-    <string name="master_summary_fmt">使用中 · 已启用 %1$d 条规则，最近一条 %2$s 后提醒</string>
     <string name="no_enabled_rules">没有启用中的规则，请新增或开启</string>
 
     <string name="rules_section_title">我的提醒规则</string>

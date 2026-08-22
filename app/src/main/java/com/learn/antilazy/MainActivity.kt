@@ -2,7 +2,6 @@ package com.learn.antilazy
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.app.AlertDialog
 import android.app.DownloadManager
 import android.content.BroadcastReceiver
@@ -10,7 +9,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -20,19 +21,27 @@ import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.Settings
+import android.text.SpannableStringBuilder
+import android.text.Spanned
 import android.text.TextUtils
+import android.text.style.ForegroundColorSpan
 import android.view.Gravity
+import android.view.View
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.Switch
+import android.widget.PopupMenu
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
+import com.google.android.material.materialswitch.MaterialSwitch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class MainActivity : Activity() {
+class MainActivity : AppCompatActivity() {
 
     companion object {
         /** 发起启动后的宽限期，期间不判定"服务没起来" */
@@ -45,14 +54,16 @@ class MainActivity : Activity() {
         private const val MAX_MINUTES = 720
     }
 
-    private lateinit var switchToggle: Switch
-    private lateinit var tvStatus: TextView
-    private lateinit var btnTest: Button
-    private lateinit var btnUsage: Button
-    private lateinit var btnCheckUpdate: Button
-    private lateinit var btnLanguage: Button
+    private lateinit var switchToggle: MaterialSwitch
+    private lateinit var vStatusDot: View
+    private lateinit var tvStatusHead: TextView
+    private lateinit var tvStatusNext: TextView
+    private lateinit var tvStatusDetail: TextView
+    private lateinit var ibMenu: ImageButton
+    private lateinit var ibTest: ImageButton
     private lateinit var btnAddRule: Button
-    private lateinit var btnGuide: Button
+    private lateinit var llUsageEntry: View
+    private lateinit var tvGuideLink: TextView
     private lateinit var llPermissions: LinearLayout
     private lateinit var llRules: LinearLayout
 
@@ -91,13 +102,15 @@ class MainActivity : Activity() {
         MonitorService.applyUserRequestedStopIfNeeded(this)
 
         switchToggle = findViewById(R.id.sw_toggle)
-        tvStatus = findViewById(R.id.tv_status)
-        btnTest = findViewById(R.id.btn_test)
-        btnUsage = findViewById(R.id.btn_usage)
-        btnCheckUpdate = findViewById(R.id.btn_check_update)
-        btnLanguage = findViewById(R.id.btn_language)
+        vStatusDot = findViewById(R.id.v_status_dot)
+        tvStatusHead = findViewById(R.id.tv_status_head)
+        tvStatusNext = findViewById(R.id.tv_status_next)
+        tvStatusDetail = findViewById(R.id.tv_status_detail)
+        ibMenu = findViewById(R.id.ib_menu)
+        ibTest = findViewById(R.id.ib_test)
         btnAddRule = findViewById(R.id.btn_add_rule)
-        btnGuide = findViewById(R.id.btn_guide)
+        llUsageEntry = findViewById(R.id.ll_usage_entry)
+        tvGuideLink = findViewById(R.id.tv_guide_link)
         llPermissions = findViewById(R.id.ll_permissions)
         llRules = findViewById(R.id.ll_rules)
 
@@ -128,7 +141,7 @@ class MainActivity : Activity() {
             }
         }
 
-        btnTest.setOnClickListener {
+        ibTest.setOnClickListener {
             if (!MonitorService.sendTestReminder(this)) {
                 Toast.makeText(this, R.string.test_hint_toast, Toast.LENGTH_SHORT).show()
             }
@@ -136,16 +149,28 @@ class MainActivity : Activity() {
 
         btnAddRule.setOnClickListener { openEditor(existing = null) }
 
-        btnUsage.setOnClickListener {
+        llUsageEntry.setOnClickListener {
             startActivity(Intent(this, UsageStatsActivity::class.java))
         }
 
-        btnGuide.setOnClickListener { showKeepAliveGuide() }
-        btnCheckUpdate.setOnClickListener { checkForUpdate() }
-        btnLanguage.setOnClickListener { showLanguageDialog() }
+        tvGuideLink.setOnClickListener { showKeepAliveGuide() }
+
+        ibMenu.setOnClickListener { anchor ->
+            val popup = PopupMenu(this, anchor)
+            popup.menu.add(0, 1, 0, getString(R.string.update_button))
+            popup.menu.add(0, 2, 0, "语言 / Language")
+            popup.setOnMenuItemClickListener { item ->
+                when (item.itemId) {
+                    1 -> checkForUpdate()
+                    2 -> showLanguageDialog()
+                }
+                true
+            }
+            popup.show()
+        }
 
         // 点状态文字：通知不可用时直达系统通知设置
-        tvStatus.setOnClickListener {
+        tvStatusDetail.setOnClickListener {
             if (!Notifier.canPostReminders(this)) openNotificationSettings()
         }
 
@@ -238,7 +263,7 @@ class MainActivity : Activity() {
             col.addView(tvMain)
             col.addView(tvSub)
 
-            val sw = Switch(this).apply {
+            val sw = com.google.android.material.materialswitch.MaterialSwitch(this).apply {
                 isChecked = rule.enabled
                 setOnCheckedChangeListener { _, checked -> toggleRule(rule.id, checked) }
             }
@@ -291,52 +316,77 @@ class MainActivity : Activity() {
     private fun renderStatusText() {
         updateCountdownTexts()
 
-        val sb = StringBuilder()
         val active = MonitorService.wasRunningBefore(this)
+        val unlockedNow = ReminderEngine.isUnlockedNow(this)
+        val stalled = active && unlockedNow &&
+            ReminderEngine.lastCheckpointAgeMs(this) > 5 * 60_000L
 
-        sb.append(
-            when {
-                !active -> getString(R.string.status_stopped)
-                !MonitorService.isRunning ->
-                    if (ReminderEngine.isUnlockedNow(this)) {
-                        getString(R.string.status_service_dead)
-                    } else {
-                        getString(R.string.status_locked_paused)
-                    }
-                !MonitorService.isUnlocked -> getString(R.string.status_locked_paused)
-                else -> {
-                    val enabled = uiRules.count { it.enabled }
-                    if (enabled == 0) {
-                        getString(R.string.no_enabled_rules)
-                    } else {
-                        val nextMs = uiRules.filter { it.enabled }.minOf { rule ->
-                            (rule.intervalMinutes * 60_000L - (snapElapsed[rule.id] ?: 0L))
-                                .coerceAtLeast(0L)
-                        }
-                        getString(R.string.master_summary_fmt, enabled, MonitorService.formatDuration(this@MainActivity, nextMs))
-                    }
-                }
+        // 状态机：已停止 / 服务恢复中 / 锁屏暂停 / 运行中
+        val (headRes, headColor) = when {
+            !active -> R.string.status_stopped to R.color.text_secondary
+            !MonitorService.isRunning && unlockedNow ->
+                R.string.status_head_recovering to R.color.status_paused
+            !MonitorService.isRunning -> R.string.status_locked_paused to R.color.status_paused
+            !MonitorService.isUnlocked -> R.string.status_locked_paused to R.color.status_paused
+            stalled -> R.string.status_stalled_warn to R.color.status_error
+            else -> {
+                val enabled = uiRules.count { it.enabled }
+                if (enabled == 0) R.string.no_enabled_rules to R.color.status_paused
+                else R.string.status_head_running to R.color.status_active
             }
-        )
+        }
+        tvStatusHead.text = getString(headRes)
+        val headColorValue = getColor(headColor)
+        tvStatusHead.setTextColor(headColorValue)
+        vStatusDot.background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(headColorValue)
+        }
 
+        // 大号倒计时：仅运行中且有启用规则时显示
+        val enabledRules = uiRules.filter { it.enabled }
+        if (active && MonitorService.isRunning && MonitorService.isUnlocked && enabledRules.isNotEmpty()) {
+            val nextMs = enabledRules.minOf { rule ->
+                (rule.intervalMinutes * 60_000L - (snapElapsed[rule.id] ?: 0L))
+                    .coerceAtLeast(0L)
+            }
+            tvStatusNext.text = MonitorService.formatDuration(this, nextMs)
+            tvStatusNext.visibility = View.VISIBLE
+        } else {
+            tvStatusNext.visibility = View.GONE
+        }
+
+        // 详情行（含着色警告）
+        val sb = SpannableStringBuilder()
+        fun appendLine(text: String, colorRes: Int? = null) {
+            if (sb.isNotEmpty()) sb.append('\n')
+            if (colorRes != null) {
+                val start = sb.length
+                sb.append(text)
+                sb.setSpan(
+                    ForegroundColorSpan(getColor(colorRes)),
+                    start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+            } else {
+                sb.append(text)
+            }
+        }
+
+        if (active && !MonitorService.isRunning && unlockedNow) {
+            appendLine(getString(R.string.status_service_dead))
+        }
         if (active && !Notifier.canPostReminders(this)) {
-            sb.append('\n').append(getString(R.string.notif_denied_warn))
+            appendLine(getString(R.string.notif_denied_warn), R.color.status_paused)
         }
-
         if (active && !OverlayReminder.canShow(this)) {
-            sb.append('\n').append(getString(R.string.overlay_missing_warn))
+            appendLine(getString(R.string.overlay_missing_warn))
         }
-
+        if (stalled && MonitorService.isRunning) {
+            appendLine(getString(R.string.status_stalled_warn), R.color.status_error)
+        }
         if (active) {
-            // 计时停滞自检：监控开启且屏幕解锁，但检查点超过 5 分钟没更新。
-            if (ReminderEngine.isUnlockedNow(this) &&
-                ReminderEngine.lastCheckpointAgeMs(this) > 5 * 60_000L
-            ) {
-                sb.append('\n').append(getString(R.string.status_stalled_warn))
-            }
             val last = ReminderEngine.prefs(this).getLong(RuleStore.KEY_LAST_REMINDER_AT, 0L)
-            sb.append('\n')
-            sb.append(
+            appendLine(
                 if (last > 0) {
                     val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(last))
                     getString(
@@ -350,7 +400,8 @@ class MainActivity : Activity() {
             )
         }
 
-        tvStatus.text = sb.toString()
+        tvStatusDetail.text = sb
+        tvStatusDetail.visibility = if (sb.isEmpty()) View.GONE else View.VISIBLE
     }
 
     /** 软键盘弹出时避免按钮被遮挡：对话框内容包一层滚动容器 */
@@ -514,21 +565,25 @@ class MainActivity : Activity() {
 
     private class PermRow(
         val titleRes: Int,
+        val iconRes: Int,
         val granted: Boolean,
         val action: () -> Unit
     )
 
     private fun buildPermRows(): List<PermRow> = listOf(
-        PermRow(R.string.perm_notification, Notifier.canPostReminders(this)) {
+        PermRow(R.string.perm_notification, R.drawable.ic_bell, Notifier.canPostReminders(this)) {
             requestOrOpenNotification()
         },
-        PermRow(R.string.perm_overlay, OverlayReminder.canShow(this)) {
+        PermRow(R.string.perm_overlay, R.drawable.ic_overlay, OverlayReminder.canShow(this)) {
             requestOverlayPermission()
         },
-        PermRow(R.string.perm_usage, UsageStatsRepository.hasUsageAccess(this)) {
+        PermRow(R.string.perm_usage, R.drawable.ic_usage, UsageStatsRepository.hasUsageAccess(this)) {
             openUsageAccessSettings()
         },
-        PermRow(R.string.perm_battery, batteryManager().isIgnoringBatteryOptimizations(packageName)) {
+        PermRow(
+            R.string.perm_battery, R.drawable.ic_battery,
+            batteryManager().isIgnoringBatteryOptimizations(packageName)
+        ) {
             requestIgnoreBatteryOptimizations()
         }
     )
@@ -539,12 +594,23 @@ class MainActivity : Activity() {
             val item = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, dp(10), 0, dp(10))
+                setPadding(0, dp(12), 0, dp(12))
                 isClickable = true
                 isFocusable = true
-                setOnClickListener { row.action(); }
+                val ta = obtainStyledAttributes(intArrayOf(android.R.attr.selectableItemBackground))
+                foreground = ta.getDrawable(0)
+                ta.recycle()
+                setOnClickListener { row.action() }
             }
-            val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            val icon = ImageView(this).apply {
+                setImageResource(row.iconRes)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                setColorFilter(getColor(R.color.text_secondary))
+            }
+            val col = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(14), 0, 0, 0)
+            }
             val title = TextView(this).apply {
                 text = getString(row.titleRes)
                 textSize = 15f
@@ -565,6 +631,7 @@ class MainActivity : Activity() {
                 setPadding(dp(12), 0, 0, 0)
             }
 
+            item.addView(icon, LinearLayout.LayoutParams(dp(20), dp(20)))
             item.addView(col, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
             item.addView(chevron)
             llPermissions.addView(item)
@@ -719,11 +786,9 @@ class MainActivity : Activity() {
         }
 
     private fun checkForUpdate() {
-        btnCheckUpdate.isEnabled = false
         Thread {
             val release = runCatching { Updater.fetchLatestRelease() }.getOrNull()
             runOnUiThread {
-                btnCheckUpdate.isEnabled = true
                 when {
                     release == null -> showUpdateFailedDialog()
                     !Updater.isNewer(release.tagName, currentVersionName()) ->

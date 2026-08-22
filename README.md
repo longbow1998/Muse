@@ -39,7 +39,7 @@ On first launch: allow notifications, grant the permissions listed in the in-app
 - **权限自检面板**：通知/悬浮窗/使用情况/电池优化逐项状态，点击直达设置
 - **在线更新**：应用内检查 GitHub Releases 并安装
 - 仅在解锁使用时计时：短锁屏暂停续计，锁屏 >1 分钟清零重计；服务被回收时暂停并告警，绝不伪造进度
-- 中英双语可切换；运行时零第三方依赖（Kotlin + 纯框架 API）
+- 中英双语可切换；Material 3 设计语言、自动深色模式；仅依赖 Google 官方库，无其他第三方依赖
 
 ### English
 
@@ -51,7 +51,7 @@ On first launch: allow notifications, grant the permissions listed in the in-app
 - **Permission checklist**: live status with one-tap jumps to system settings
 - **In-app updates** via GitHub Releases
 - Counts only while unlocked; short locks pause, locks >1 min reset; never fabricates progress after service death
-- Chinese/English UI switchable; zero third-party runtime dependencies
+- Chinese/English UI switchable; Material 3 design with automatic dark mode; only official Google libraries, no other third-party deps
 
 ## 构建 / Build
 

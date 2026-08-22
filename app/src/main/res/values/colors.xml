@@ -1,10 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="brand">#F4511E</color>
-    <color name="brand_dark">#BF360C</color>
     <color name="bg">#FAFAFA</color>
+    <color name="card">#FFFFFF</color>
+    <color name="card_stroke">#14000000</color>
     <color name="text_primary">#212121</color>
     <color name="text_secondary">#757575</color>
+
+    <!-- 状态色 -->
+    <color name="status_active">#2E7D32</color>
+    <color name="status_paused">#EF6C00</color>
+    <color name="status_error">#C62828</color>
+
+    <!-- 权限行 -->
     <color name="perm_on">#2E7D32</color>
     <color name="perm_off">#EF6C00</color>
+
+    <!-- 图表 / 占比条 -->
+    <color name="chart_track">#E3E3E3</color>
+    <color name="chart_baseline">#DDDDDD</color>
+    <color name="share_track">#EFEFEF</color>
+
+    <!-- Tab 未选中底色 -->
+    <color name="tab_unselected_bg">#14000000</color>
 </resources>

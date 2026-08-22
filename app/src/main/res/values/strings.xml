@@ -5,11 +5,15 @@
     <string name="subtitle">Counts only while your phone is unlocked and in use; pauses on lock/screen-off, and restarts after locks longer than 1 minute.</string>
 
     <string name="toggle_label">Start / stop monitoring</string>
+        <string name="chevron_right" translatable="false">›</string>
+<string name="menu_more">More options</string>
+    <string name="usage_entry_sub">Trends · per-app share · battery estimate</string>
+    <string name="status_head_running">Active · enabled rules: %1$d</string>
+    <string name="status_head_recovering">Service recovering…</string>
 
     <string name="status_stopped">Stopped. Toggle the switch above to begin.</string>
     <string name="status_service_dead">Monitoring on · service was reclaimed by the system, recovering…(timing paused until then)</string>
     <string name="status_locked_paused">Locked · timing paused ⏸</string>
-    <string name="master_summary_fmt">Active · rules enabled: %1$d · next reminder in %2$s</string>
     <string name="no_enabled_rules">No enabled rules — add one or enable an existing rule</string>
 
     <string name="rules_section_title">My reminder rules</string>

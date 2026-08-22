@@ -281,3 +281,19 @@ README 安装章节改为以 GitHub Releases 为唯一分发入口（应用内�
 等效公开可验证身份），本地与 CI 的 release 构建统一使用；CI 改为发布
 assembleRelease 产物（Muse-v{ver}-release.apk）。早期临时签名版本需卸载重装一次，
 此后所有版本可无缝覆盖升级与应用内更新。
+
+### 2026-08-22 UI 改版：Material 3（v1.9.0）
+
+引入 Google 官方 Material Components（唯一 UI 依赖），Activity 迁移至
+AppCompatActivity + Theme.Material3.DayNight：
+
+1. 深色模式：M3 DayNight 主题 + values-night 色板（背景/卡片/文字/状态色/
+   图表轨道全部资源化），状态栏图标明暗随系统切换。
+2. 信息架构重组：检查更新与语言收进右上角 ⋮ 菜单；「今日使用统计」升级为
+   带图标的醒目卡片入口；保活指南降级为页脚链接；主按钮仅剩「＋新增规则」，
+   测试提醒移至规则区标题行图标。
+3. 状态可视化：状态色点 + 着色标题（绿=运行/橙=暂停或恢复中/红=停滞），
+   大号倒计时数字，警告行按严重度着色（Spannable）。
+4. 图标体系：自绘 10 个矢量图标（菜单/测试/统计/权限四项/新增等），
+   权限行前缀图标、MaterialSwitch 全面替换旧 Switch。
+5. 卡片描边适配深浅色（card_stroke），Tab/占比条/柱状图轨道色资源化。

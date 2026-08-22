@@ -19,8 +19,10 @@ class UsageBarChartView @JvmOverloads constructor(
 
     private val barPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val rect = RectF()
+    private val normalBarColor = context.getColor(R.color.chart_track)
+    private val highlightColor = context.getColor(R.color.brand)
     private val baselinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFDDDDDD.toInt()
+        color = context.getColor(R.color.chart_baseline)
         strokeWidth = resources.displayMetrics.density
     }
     private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -63,9 +65,7 @@ class UsageBarChartView @JvmOverloads constructor(
                 val h = (v.toFloat() / maxV) * plotH
                 val left = slot * i + (slot - barWidth) / 2f
                 rect.set(left, baselineY - h, left + barWidth, baselineY)
-                barPaint.color =
-                    if (i == highlightIndex) context.getColor(R.color.brand)
-                    else 0xFFE3E3E3.toInt()
+                barPaint.color = if (i == highlightIndex) highlightColor else normalBarColor
                 canvas.drawRoundRect(rect, radius, radius, barPaint)
             }
         }
@@ -96,7 +96,9 @@ class ShareBarView @JvmOverloads constructor(
             invalidate()
         }
 
-    private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFEFEFEF.toInt() }
+    private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = context.getColor(R.color.share_track)
+    }
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = context.getColor(R.color.brand)
     }
