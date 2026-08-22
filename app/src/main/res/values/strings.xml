@@ -23,5 +23,15 @@
     <string name="battery_request">申请忽略电池优化（防止后台被杀）</string>
     <string name="battery_done">已忽略电池优化 ✓</string>
 
+    <string name="test_button">立即测试一次提醒</string>
+    <string name="test_reminder_title">测试提醒（链路正常 ✓）</string>
+    <string name="test_hint_toast">请先打开监控开关，再测试提醒</string>
+
+    <string name="status_last_reminder_fmt">上次提醒：%1$s · 已提醒 %2$d 次</string>
+    <string name="status_no_reminder_yet">尚未提醒过（累计满 5 分钟触发第一次）</string>
+    <string name="notif_denied_warn">⚠️ 未授予通知权限，提醒将无法显示！请到 系统设置 → 应用 → 反懒惰提醒 → 通知 开启</string>
+
+    <string name="start_failed">监控启动失败，请重试</string>
+
     <string name="footer_hint">提示：若被系统杀后台，请在系统的自启动管理中允许本应用；重启后会自动恢复监控。</string>
 </resources>

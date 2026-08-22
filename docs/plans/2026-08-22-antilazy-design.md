@@ -42,3 +42,40 @@
 
 - `./gradlew assembleDebug` 通过，产物 app-debug.apk（793KB）；
 - aapt badging 校验包名、权限、label 正确。
+
+## 变更记录
+
+### 2026-08-22 真机反馈修复
+
+真机反馈三个问题，根因与修复：
+
+1. **开关点击闪退（偶发）**：UI 每秒用服务真实状态回写 Switch，用户刚打开就被程序
+   弹回，监听器连带把服务停掉；快速启停竞态下服务销毁时还没调 `startForeground()`，
+   违反前台服务契约抛 RemoteServiceException。
+   修复：onStartCommand 第一行即 startForeground；UI 引入 desiredRunning 目标态 +
+   去抖，程序化 setChecked 不再触发重复启停。
+2. **要点好多次才切换**：同上根因。修复：状态刷新只更新文本不回写开关；
+   onResume 才同步一次开关位置。
+3. **通知栏倒计时不实时**：原每 30 秒刷新一次前台通知，改为每秒刷新
+   （仅解锁计时中；IMPORTANCE_MIN + setOnlyAlertOnce 静默更新）。
+
+另加自愈逻辑：desiredRunning=true 但服务 3 秒宽限期后仍未运行时自动补启动，
+顺带覆盖"服务被系统杀死后自动拉起"。
+
+### 2026-08-22 真机反馈修复 2：到点不提醒
+
+反馈：停在 App 内满 5 分钟无任何提醒。
+
+根因分析：计时值只存内存（companion var），进程被 ROM 电池管理硬杀后 START_STICKY
+重启时 activeMs 归零，倒计时悄悄从头再来——用户感知为"时间到了却没提醒"。
+次要风险：通知权限被拒时提醒静默丢失，UI 无任何提示，难以排查。
+
+修复与增强：
+
+1. 计时进度落盘（每 10 秒 + 锁屏暂停时 + onDestroy）；进程重启时若距上次落盘
+   < 2 分钟且 running 标记仍在（说明是硬杀），接着上次进度继续计，否则视为新会话清零；
+2. 提醒留痕：lastReminderAt / reminderCount 持久化并在状态区展示
+   "上次提醒 HH:mm:ss · 已提醒 N 次"，触发与否一目了然；
+3. 新增「立即测试一次提醒」按钮，无需等 5 分钟即可验证提醒链路；
+4. API 33+ 未授予通知权限时状态区红字警告；
+5. 提醒通知补充 CATEGORY_REMINDER 与 setDefaults，提升部分 ROM 的呈现率。

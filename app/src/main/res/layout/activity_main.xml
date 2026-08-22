@@ -63,6 +63,13 @@
             android:layout_marginTop="20dp"
             android:text="@string/battery_request" />
 
+        <Button
+            android:id="@+id/btn_test"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/test_button" />
+
         <TextView
             android:id="@+id/tv_footer"
             android:layout_width="match_parent"
