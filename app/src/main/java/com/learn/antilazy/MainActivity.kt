@@ -3,7 +3,6 @@ package com.learn.antilazy
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
-import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Typeface
@@ -41,8 +40,10 @@ class MainActivity : Activity() {
     private lateinit var tvStatus: TextView
     private lateinit var btnBattery: Button
     private lateinit var btnTest: Button
+    private lateinit var btnUsage: Button
     private lateinit var btnAddRule: Button
     private lateinit var btnGuide: Button
+    private lateinit var btnOverlay: Button
     private lateinit var llRules: LinearLayout
 
     private val handler = Handler(Looper.getMainLooper())
@@ -50,6 +51,7 @@ class MainActivity : Activity() {
     /** 用户期望的目标状态；UI 只跟随它，避免和服务异步状态互相打架 */
     private var desiredRunning = false
     private var lastStartRequestAt = 0L
+    private var pendingStartAfterPermission = false
 
     /** 规则列表的本地事实源（编辑后立即回显，不依赖服务是否运行） */
     private var uiRules: List<Rule> = emptyList()
@@ -64,6 +66,7 @@ class MainActivity : Activity() {
         override fun run() {
             refreshFromService()
             renderStatusText()
+            reconcileService()
             handler.postDelayed(this, 1000)
         }
     }
@@ -71,13 +74,16 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        MonitorService.applyUserRequestedStopIfNeeded(this)
 
         switchToggle = findViewById(R.id.sw_toggle)
         tvStatus = findViewById(R.id.tv_status)
         btnBattery = findViewById(R.id.btn_battery)
         btnTest = findViewById(R.id.btn_test)
+        btnUsage = findViewById(R.id.btn_usage)
         btnAddRule = findViewById(R.id.btn_add_rule)
         btnGuide = findViewById(R.id.btn_guide)
+        btnOverlay = findViewById(R.id.btn_overlay)
         llRules = findViewById(R.id.ll_rules)
 
         switchToggle.setOnCheckedChangeListener { _, checked ->
@@ -85,9 +91,25 @@ class MainActivity : Activity() {
             if (checked == desiredRunning) return@setOnCheckedChangeListener
             desiredRunning = checked
             if (checked) {
-                ensureNotificationPermission()
-                requestStart(showToastOnFail = true)
+                if (canShowAnyReminder()) {
+                    requestStart(showToastOnFail = true)
+                } else if (Build.VERSION.SDK_INT >= 33 &&
+                    checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+                    PackageManager.PERMISSION_GRANTED
+                ) {
+                    pendingStartAfterPermission = true
+                    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
+                } else {
+                    desiredRunning = false
+                    switchToggle.isChecked = false
+                    Toast.makeText(
+                        this,
+                        R.string.delivery_permission_required,
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             } else {
+                pendingStartAfterPermission = false
                 MonitorService.stop(this)
             }
         }
@@ -102,7 +124,12 @@ class MainActivity : Activity() {
 
         btnAddRule.setOnClickListener { openEditor(existing = null) }
 
-        findViewById<Button>(R.id.btn_guide).setOnClickListener { showKeepAliveGuide() }
+        btnUsage.setOnClickListener {
+            startActivity(Intent(this, UsageStatsActivity::class.java))
+        }
+
+        btnGuide.setOnClickListener { showKeepAliveGuide() }
+        btnOverlay.setOnClickListener { requestOverlayPermission() }
 
         uiRules = RuleStore.load(this)
         rebuildRows()
@@ -110,11 +137,13 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        ensureNotificationPermission()
-        // 以落盘的运行标记为准：进程被杀后 companion 变量失真，
-        // 而兜底闹钟仍在按标记计时
+        // 以落盘的运行标记为准：进程被杀后 companion 变量会失真。
         desiredRunning = MonitorService.wasRunningBefore(this)
         switchToggle.isChecked = desiredRunning
+        renderOverlayButton()
+        lastStartRequestAt = 0L
+        reconcileService()
+        handler.removeCallbacks(statusUpdater)
         handler.post(statusUpdater)
         renderBatteryButton()
     }
@@ -264,24 +293,18 @@ class MainActivity : Activity() {
             }
         )
 
-        if (Build.VERSION.SDK_INT >= 33 &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
+        if (active && !Notifier.canPostReminders(this)) {
             sb.append('\n').append(getString(R.string.notif_denied_warn))
         }
 
-        if (active && Build.VERSION.SDK_INT >= 34) {
-            val nm = getSystemService(NotificationManager::class.java)
-            if (nm.canUseFullScreenIntent() == false) {
-                sb.append('\n').append(getString(R.string.fsr_denied_hint))
-            }
+        if (active && !OverlayReminder.canShow(this)) {
+            sb.append('\n').append(getString(R.string.overlay_missing_warn))
         }
 
         if (active) {
-            // 计时停滞自检：监控开启且屏幕解锁，但墙钟超过 5 分钟没走动，
-            // 说明服务与闹钟都被系统拦截了（常见于强停/深度休眠）
+            // 计时停滞自检：监控开启且屏幕解锁，但检查点超过 5 分钟没更新。
             if (ReminderEngine.isUnlockedNow(this) &&
-                ReminderEngine.lastTickAgeMs(this) > 5 * 60_000L
+                ReminderEngine.lastCheckpointAgeMs(this) > 5 * 60_000L
             ) {
                 sb.append('\n').append(getString(R.string.status_stalled_warn))
             }
@@ -441,12 +464,46 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun ensureNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= 33 &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != 100 || !pendingStartAfterPermission) return
+        pendingStartAfterPermission = false
+        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED ||
+            OverlayReminder.canShow(this)
         ) {
-            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
+            requestStart(showToastOnFail = true)
+        } else {
+            desiredRunning = false
+            switchToggle.isChecked = false
+            Toast.makeText(this, R.string.delivery_permission_required, Toast.LENGTH_LONG).show()
         }
+    }
+
+    private fun canShowAnyReminder(): Boolean =
+        OverlayReminder.canShow(this) || Notifier.canPostReminders(this)
+
+    private fun requestOverlayPermission() {
+        if (OverlayReminder.canShow(this)) return
+        runCatching {
+            startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+            )
+        }
+    }
+
+    private fun renderOverlayButton() {
+        val granted = OverlayReminder.canShow(this)
+        btnOverlay.isEnabled = !granted
+        btnOverlay.text = getString(
+            if (granted) R.string.overlay_done else R.string.overlay_request
+        )
     }
 
     private fun renderBatteryButton() {
@@ -458,17 +515,8 @@ class MainActivity : Activity() {
     private fun requestIgnoreBatteryOptimizations() {
         val pm = batteryManager()
         if (pm.isIgnoringBatteryOptimizations(packageName)) return
-        try {
-            startActivity(
-                Intent(
-                    Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                    Uri.parse("package:$packageName")
-                )
-            )
-        } catch (e: Exception) {
-            runCatching {
-                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-            }
+        runCatching {
+            startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
         }
     }
 

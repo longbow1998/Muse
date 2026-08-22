@@ -1,6 +1,10 @@
 package com.learn.antilazy
 
+import android.annotation.SuppressLint
+import android.app.ActivityManager
+import android.app.ApplicationExitInfo
 import android.app.Notification
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
@@ -8,22 +12,27 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 
+/** Sole authority for active-use timing. Alarm fallback is intentionally watchdog-only. */
+@SuppressLint("ApplySharedPref") // User intent and lock transitions must survive immediate death.
 class MonitorService : Service() {
 
-    /** 运行时单条规则状态（定义 + 已累计时长） */
-    private class Rt(val rule: Rule, var elapsedMs: Long)
+    private class Rt(
+        val rule: Rule,
+        var elapsedMs: Long,
+        var nextRetryAtElapsed: Long = 0L
+    )
 
     companion object {
         private const val TAG = "MonitorService"
-
         private const val TICK_MS = 1000L
-        private const val PERSIST_EVERY_MS = 10_000L
+        private const val DELIVERY_RETRY_MS = 30_000L
         private const val NOTIFICATION_ID_MONITOR = 1
 
         @Volatile
@@ -34,36 +43,96 @@ class MonitorService : Service() {
         var isUnlocked = false
             private set
 
-        /** 仅主线程读写；UI 通过 snapshot(context) 读取，进程死后自动回退到持久化数据 */
-        @Volatile
-        private var runtimeRules: List<Rt> = emptyList()
-
         @Volatile
         private var instance: MonitorService? = null
 
-        fun start(context: Context): Boolean =
-            try {
-                // 清除"用户主动停止"标记：此后若服务被系统回收，兜底闹钟应继续计时
-                ReminderEngine.prefs(context).edit()
-                    .putBoolean(RuleStore.KEY_USER_STOPPED, false).apply()
+        fun start(context: Context): Boolean {
+            val prefs = ReminderEngine.prefs(context)
+            val enabledAt = System.currentTimeMillis()
+            prefs.edit()
+                .putBoolean(RuleStore.KEY_RUNNING, true)
+                .putBoolean(RuleStore.KEY_USER_STOPPED, false)
+                .putLong(RuleStore.KEY_LAST_ENABLE_WALL, enabledAt)
+                .commit()
+            return try {
                 context.startForegroundService(Intent(context, MonitorService::class.java))
+                TickReceiver.scheduleNext(context)
                 true
             } catch (e: Exception) {
                 Log.e(TAG, "startForegroundService failed", e)
+                prefs.edit()
+                    .putBoolean(RuleStore.KEY_RUNNING, false)
+                    .putBoolean(RuleStore.KEY_USER_STOPPED, true)
+                    .commit()
+                TickReceiver.cancel(context)
                 false
             }
+        }
+
+        /** Best-effort recovery from a watchdog alarm without changing the user's intent. */
+        fun restartIfExpected(context: Context): Boolean {
+            val prefs = ReminderEngine.prefs(context)
+            if (!prefs.getBoolean(RuleStore.KEY_RUNNING, false) ||
+                prefs.getBoolean(RuleStore.KEY_USER_STOPPED, false)
+            ) return false
+            return try {
+                context.startForegroundService(Intent(context, MonitorService::class.java))
+                true
+            } catch (e: Exception) {
+                Log.w(TAG, "watchdog could not restart foreground service", e)
+                false
+            }
+        }
 
         fun stop(context: Context) {
-            // 标记用户主动停止：onDestroy 才允许清除运行标记，终止闹钟链
-            ReminderEngine.prefs(context).edit()
-                .putBoolean(RuleStore.KEY_USER_STOPPED, true).apply()
+            val prefs = ReminderEngine.prefs(context)
+            prefs.edit()
+                .putBoolean(RuleStore.KEY_RUNNING, false)
+                .putBoolean(RuleStore.KEY_USER_STOPPED, true)
+                .commit()
+            RuleStore.clearProgress(
+                prefs,
+                SystemClock.elapsedRealtime(),
+                ReminderEngine.bootCount(context),
+                sync = true
+            )
+            TickReceiver.cancel(context)
             context.stopService(Intent(context, MonitorService::class.java))
         }
 
-        /** 服务实例是否存活（决定兜底闹钟是否接管计数） */
         fun isAlive(): Boolean = instance != null
 
-        /** UI 展示快照：服务活着读内存（秒级新鲜度），死了回退到落盘进度 */
+        fun wasRunningBefore(context: Context): Boolean =
+            ReminderEngine.prefs(context).getBoolean(RuleStore.KEY_RUNNING, false)
+
+        /** Honor Android's Active apps / Task Manager Stop instead of resurrecting via alarms. */
+        fun applyUserRequestedStopIfNeeded(context: Context): Boolean {
+            if (Build.VERSION.SDK_INT < 30) return false
+            val prefs = ReminderEngine.prefs(context)
+            if (!prefs.getBoolean(RuleStore.KEY_RUNNING, false)) return false
+            val enabledAt = prefs.getLong(RuleStore.KEY_LAST_ENABLE_WALL, 0L)
+            if (enabledAt <= 0L) return false
+            val activityManager = context.getSystemService(ActivityManager::class.java) ?: return false
+            val lastExit = activityManager.getHistoricalProcessExitReasons(context.packageName, 0, 1)
+                .firstOrNull() ?: return false
+            if (lastExit.reason != ApplicationExitInfo.REASON_USER_REQUESTED ||
+                lastExit.timestamp <= enabledAt
+            ) return false
+
+            prefs.edit()
+                .putBoolean(RuleStore.KEY_RUNNING, false)
+                .putBoolean(RuleStore.KEY_USER_STOPPED, true)
+                .commit()
+            RuleStore.clearProgress(
+                prefs,
+                SystemClock.elapsedRealtime(),
+                ReminderEngine.bootCount(context),
+                sync = true
+            )
+            TickReceiver.cancel(context)
+            return true
+        }
+
         fun snapshot(context: Context): List<RuleView> {
             val service = instance
             if (service != null) return service.memorySnapshot()
@@ -74,33 +143,24 @@ class MonitorService : Service() {
             }
         }
 
-        /**
-         * 应用新的规则集合：无论服务是否在运行都持久化；
-         * 运行中则热更新内存规则，保留同 id 的已计进度。
-         */
         fun setRules(context: Context, rules: List<Rule>) {
             RuleStore.save(context, rules)
-            instance?.replaceRules(rules) ?: run { runtimeRules = emptyList() }
+            instance?.replaceRules(rules)
         }
 
         fun sendTestReminder(context: Context): Boolean {
-            val prefs = ReminderEngine.prefs(context)
-            if (!prefs.getBoolean(RuleStore.KEY_RUNNING, false)) return false
-            val text = RuleStore.load(context).firstOrNull { it.enabled }?.text
-                ?: context.getString(R.string.default_reminder_text)
+            if (!wasRunningBefore(context)) return false
+            val rule = RuleStore.load(context).firstOrNull { it.enabled }
             return Notifier.fireReminder(
                 context,
+                rule?.id ?: -1L,
                 context.getString(R.string.test_reminder_title),
-                text
+                rule?.text ?: context.getString(R.string.default_reminder_text)
             )
         }
 
-        fun wasRunningBefore(context: Context): Boolean =
-            context.getSharedPreferences(RuleStore.PREFS_NAME, Context.MODE_PRIVATE)
-                .getBoolean(RuleStore.KEY_RUNNING, false)
-
         fun formatDuration(ms: Long): String {
-            val totalSeconds = ms / 1000
+            val totalSeconds = ms.coerceAtLeast(0L) / 1000
             val minutes = totalSeconds / 60
             val seconds = totalSeconds % 60
             return if (minutes > 0) "${minutes}分${seconds}秒" else "${seconds}秒"
@@ -109,16 +169,20 @@ class MonitorService : Service() {
 
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var prefs: SharedPreferences
-    private var ticking = false
+    private var runtimeRules: List<Rt> = emptyList()
     private var receiverRegistered = false
-    private var lastPersistAt = 0L
+    private var initialized = false
+    private var ticking = false
+    private var lastTickElapsed = 0L
+    private var lockedAtElapsed = 0L
+    private var currentBootCount = -1
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
                 Intent.ACTION_SCREEN_ON,
                 Intent.ACTION_SCREEN_OFF,
-                Intent.ACTION_USER_PRESENT -> refreshLockState()
+                Intent.ACTION_USER_PRESENT -> handleLockState()
             }
         }
     }
@@ -126,35 +190,52 @@ class MonitorService : Service() {
     private val tickRunnable = object : Runnable {
         override fun run() {
             if (!ticking) return
+            if (!ReminderEngine.isUnlockedNow(this@MonitorService)) {
+                handleLockState()
+                return
+            }
 
-            // 与兜底闹钟共用同一墙钟增量：服务存活时增量被这里逐秒消费，
-            // 闹钟路径自然拿不到剩余量；服务死亡时则全部由闹钟补算。
-            // 间隙异常大（进程被冻结/设备休眠）时按锁屏重置，防假提醒。
-            val deltaResult = ReminderEngine.consumeDeltaSanitized(prefs)
-            if (deltaResult.resetProgress) {
-                runtimeRules.forEach { it.elapsedMs = 0 }
-                persistProgress()
-                Log.d(TAG, "tick gap too large -> progress reset")
-            } else if (deltaResult.deltaMs > 0) {
+            val now = SystemClock.elapsedRealtime()
+            val gap = (now - lastTickElapsed).coerceAtLeast(0L)
+            lastTickElapsed = now
+            var syncCheckpoint = false
+
+            if (TimerMath.isUncertainGap(gap)) {
+                // A delayed main-loop tick does not prove that the device was locked.
+                // Pause the unknown interval; only an observed long lock may reset progress.
+                Log.d(TAG, "unknown active gap ${gap}ms -> progress preserved")
+            } else {
                 for (rt in runtimeRules) {
                     if (!rt.rule.enabled) continue
-                    rt.elapsedMs += deltaResult.deltaMs
-                    if (rt.elapsedMs >= rt.rule.intervalMinutes * 60_000L) {
-                        rt.elapsedMs = 0
-                        Notifier.fireReminder(
-                            this@MonitorService,
-                            getString(R.string.reminder_title),
-                            rt.rule.text
-                        )
+                    val interval = rt.rule.intervalMinutes * 60_000L
+                    val wasWaitingForDelivery = rt.elapsedMs >= interval
+                    val advanced = TimerMath.advance(rt.elapsedMs, interval, gap)
+                    if (!advanced.due) {
+                        rt.elapsedMs = advanced.elapsedMs
+                        continue
+                    }
+                    if (now < rt.nextRetryAtElapsed) {
+                        rt.elapsedMs = interval
+                        continue
+                    }
+                    val delivered = Notifier.fireReminder(
+                        this@MonitorService,
+                        rt.rule.id,
+                        getString(R.string.reminder_title),
+                        rt.rule.text
+                    )
+                    if (delivered) {
+                        rt.elapsedMs = if (wasWaitingForDelivery) 0L else advanced.elapsedMs
+                        rt.nextRetryAtElapsed = 0L
+                        syncCheckpoint = true
+                    } else {
+                        rt.elapsedMs = interval
+                        rt.nextRetryAtElapsed = now + DELIVERY_RETRY_MS
                     }
                 }
             }
 
-            val now = SystemClock.elapsedRealtime()
-            if (now - lastPersistAt >= PERSIST_EVERY_MS) {
-                persistProgress()
-                lastPersistAt = now
-            }
+            checkpoint(syncCheckpoint)
             updateForegroundNotification()
             handler.postDelayed(this, TICK_MS)
         }
@@ -164,40 +245,65 @@ class MonitorService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        prefs = ReminderEngine.prefs(this)
+        currentBootCount = ReminderEngine.bootCount(this)
         Notifier.ensureChannels(this)
         instance = this
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        restoreOrResetProgress()
-        // 必须第一时间进入前台态：快速启停时若迟迟不调用 startForeground，
-        // 会触发 "did not then call Service.startForeground()" 系统崩溃
+        // Promote first; state restoration must never consume the FGS promotion deadline.
         startForeground(NOTIFICATION_ID_MONITOR, buildForegroundNotification())
-        registerScreenReceiverIfNeeded()
-        prefs.edit().putBoolean(RuleStore.KEY_RUNNING, true).apply()
+        prefs.edit()
+            .putBoolean(RuleStore.KEY_RUNNING, true)
+            .putBoolean(RuleStore.KEY_USER_STOPPED, false)
+            .apply()
+
+        if (!initialized) {
+            registerScreenReceiverIfNeeded()
+            restoreState()
+            initialized = true
+        } else {
+            handleLockState()
+        }
         isRunning = true
-        refreshLockState()
         TickReceiver.scheduleNext(this)
+        Notifier.dismissMonitorStoppedWarning(this)
+        updateForegroundNotification()
         return START_STICKY
     }
 
-    /**
-     * 进度恢复：距最后落盘不超过锁屏重置阈值则接着上次进度继续计；
-     * 超过视为新会话清零。同时重置锁定状态机的初值，避免陈旧的
-     * locked_at 触发误重置。
-     */
-    private fun restoreOrResetProgress() {
-        prefs = ReminderEngine.prefs(this)
-        val wasRunning = prefs.getBoolean(RuleStore.KEY_RUNNING, false)
-        val savedAt = prefs.getLong(RuleStore.KEY_SAVED_AT, 0L)
-        val withinSession = wasRunning &&
-            savedAt > 0 &&
-            System.currentTimeMillis() - savedAt <= ReminderEngine.LOCK_RESET_MS
-        val progress = if (withinSession) RuleStore.loadProgress(prefs) else emptyMap()
-        runtimeRules = RuleStore.load(this).map { Rt(it, progress[it.id] ?: 0L) }
-        ReminderEngine.resetLockTracking(prefs, unlockedNow = isUnlockedNow())
-        markWallClock()
-        Log.d(TAG, "progress restored: withinSession=$withinSession, rules=${runtimeRules.size}")
+    private fun restoreState() {
+        val now = SystemClock.elapsedRealtime()
+        val currentUnlocked = ReminderEngine.isUnlockedNow(this)
+        val checkpoint = prefs.getLong(RuleStore.KEY_CHECKPOINT_ELAPSED, 0L)
+        val sameBoot = TimerMath.isSameBoot(
+            savedBootCount = prefs.getInt(RuleStore.KEY_BOOT_COUNT, -1),
+            currentBootCount = currentBootCount,
+            checkpointElapsed = checkpoint,
+            nowElapsed = now
+        )
+        val wasUnlocked = prefs.getBoolean(RuleStore.KEY_WAS_UNLOCKED, false)
+        val savedLockedAt = prefs.getLong(RuleStore.KEY_LOCKED_AT_ELAPSED, 0L)
+        val savedProgress = if (sameBoot) RuleStore.loadProgress(prefs) else emptyMap()
+
+        runtimeRules = RuleStore.load(this).map { Rt(it, savedProgress[it.id] ?: 0L) }
+        val pendingLongLock = !wasUnlocked && currentUnlocked &&
+            savedLockedAt in 1..now &&
+            TimerMath.shouldResetAfterLock(now - savedLockedAt)
+        if (!sameBoot || pendingLongLock) {
+            runtimeRules.forEach { it.elapsedMs = 0L }
+        }
+
+        lockedAtElapsed = when {
+            currentUnlocked -> 0L
+            sameBoot && !wasUnlocked && savedLockedAt in 1..now -> savedLockedAt
+            else -> now
+        }
+        isUnlocked = currentUnlocked
+        lastTickElapsed = now
+        checkpoint(sync = true)
+        if (currentUnlocked) startTicking()
     }
 
     override fun onDestroy() {
@@ -209,39 +315,83 @@ class MonitorService : Service() {
         }
         isRunning = false
         isUnlocked = false
-        persistProgress()
-        // 仅用户主动停止才终止监控；系统回收（划卡/内存回收）时
-        // 保留 running 标记，由兜底闹钟继续计时、START_STICKY 尝试复活
-        val userStopped = prefs.getBoolean(RuleStore.KEY_USER_STOPPED, false)
-        if (userStopped) {
-            prefs.edit().putBoolean(RuleStore.KEY_RUNNING, false).apply()
-        } else {
-            ReminderEngine.markWallClock(prefs)
+        if (::prefs.isInitialized) {
+            if (prefs.getBoolean(RuleStore.KEY_USER_STOPPED, false)) {
+                RuleStore.clearProgress(
+                    prefs,
+                    SystemClock.elapsedRealtime(),
+                    currentBootCount,
+                    sync = true
+                )
+                prefs.edit().putBoolean(RuleStore.KEY_RUNNING, false).commit()
+            } else if (initialized) {
+                checkpoint(sync = true)
+            }
         }
         instance = null
+        OverlayReminder.dismissAll()
         super.onDestroy()
+    }
+
+    private fun handleLockState() {
+        val currentUnlocked = ReminderEngine.isUnlockedNow(this)
+        if (currentUnlocked == isUnlocked) return
+        val now = SystemClock.elapsedRealtime()
+        if (!currentUnlocked) {
+            isUnlocked = false
+            lockedAtElapsed = now
+            lastTickElapsed = now
+            pauseTicking()
+        } else {
+            if (lockedAtElapsed in 1..now) {
+                val lockDuration = now - lockedAtElapsed
+                runtimeRules.forEach {
+                    it.elapsedMs = TimerMath.elapsedAfterUnlock(it.elapsedMs, lockDuration)
+                }
+            }
+            isUnlocked = true
+            lockedAtElapsed = 0L
+            lastTickElapsed = now
+            startTicking()
+        }
+        checkpoint(sync = true)
+        updateForegroundNotification()
+    }
+
+    private fun startTicking() {
+        if (ticking) return
+        ticking = true
+        handler.postDelayed(tickRunnable, TICK_MS)
+    }
+
+    private fun pauseTicking() {
+        ticking = false
+        handler.removeCallbacks(tickRunnable)
+    }
+
+    private fun checkpoint(sync: Boolean) {
+        RuleStore.checkpoint(
+            prefs = prefs,
+            progress = runtimeRules.associate { it.rule.id to it.elapsedMs },
+            checkpointElapsed = SystemClock.elapsedRealtime(),
+            bootCount = currentBootCount,
+            wasUnlocked = isUnlocked,
+            lockedAtElapsed = lockedAtElapsed,
+            sync = sync
+        )
+    }
+
+    private fun replaceRules(rules: List<Rule>) {
+        val oldElapsed = runtimeRules.associate { it.rule.id to it.elapsedMs }
+        runtimeRules = rules.map { Rt(it, oldElapsed[it.id] ?: 0L) }
+        checkpoint(sync = true)
+        updateForegroundNotification()
     }
 
     private fun memorySnapshot(): List<RuleView> =
         runtimeRules.map {
             RuleView(it.rule.id, it.rule.text, it.rule.intervalMinutes, it.rule.enabled, it.elapsedMs)
         }
-
-    private fun isUnlockedNow(): Boolean = ReminderEngine.isUnlockedNow(this)
-
-    private fun markWallClock() {
-        ReminderEngine.markWallClock(prefs)
-    }
-
-    private fun persistProgress() {
-        RuleStore.saveProgress(prefs, runtimeRules.associate { it.rule.id to it.elapsedMs })
-        prefs.edit().putLong(RuleStore.KEY_SAVED_AT, System.currentTimeMillis()).apply()
-    }
-
-    private fun replaceRules(rules: List<Rule>) {
-        val oldElapsed = runtimeRules.associate { it.rule.id to it.elapsedMs }
-        runtimeRules = rules.map { Rt(it, oldElapsed[it.id] ?: 0L) }
-    }
 
     private fun registerScreenReceiverIfNeeded() {
         if (receiverRegistered) return
@@ -256,50 +406,25 @@ class MonitorService : Service() {
         receiverRegistered = true
     }
 
-    /**
-     * 核心规则：
-     * 1. 屏幕亮 且 keyguard 已解锁才计时；锁屏/灭屏暂停累计；
-     * 2. 本次锁屏超过 LOCK_RESET_MS 时，解锁后所有规则进度清零重新计。
-     */
-    private fun refreshLockState() {
-        val unlocked = isUnlockedNow()
-        val state = ReminderEngine.applyLockTransition(prefs, unlocked)
-        if (state.reset && unlocked) {
-            runtimeRules.forEach { it.elapsedMs = 0 }
-            Log.d(TAG, "lock exceeded ${ReminderEngine.LOCK_RESET_MS}ms -> progress reset")
-        }
-        // 状态切换处重新锚定墙钟：锁屏期间的流逝时间不得被当作使用量补算
-        markWallClock()
-        isUnlocked = unlocked
-        if (unlocked) startTicking() else pauseTicking()
-    }
-
-    private fun startTicking() {
-        if (ticking) return
-        ticking = true
-        updateForegroundNotification()
-        handler.postDelayed(tickRunnable, TICK_MS)
-    }
-
-    private fun pauseTicking() {
-        if (!ticking) return
-        ticking = false
-        handler.removeCallbacks(tickRunnable)
-        persistProgress()
-        updateForegroundNotification()
-    }
-
-    private fun buildForegroundNotification(): Notification =
-        Notification.Builder(this, Notifier.CHANNEL_ID_MONITOR)
+    private fun buildForegroundNotification(): Notification {
+        val contentIntent = PendingIntent.getActivity(
+            this,
+            NOTIFICATION_ID_MONITOR,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return Notification.Builder(this, Notifier.CHANNEL_ID_MONITOR)
             .setSmallIcon(R.drawable.ic_stat_reminder)
             .setContentTitle(getString(R.string.monitor_title))
             .setContentText(fgStatusText())
+            .setContentIntent(contentIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .build()
+    }
 
     private fun updateForegroundNotification() {
-        getSystemService(android.app.NotificationManager::class.java)
+        getSystemService(NotificationManager::class.java)
             ?.notify(NOTIFICATION_ID_MONITOR, buildForegroundNotification())
     }
 

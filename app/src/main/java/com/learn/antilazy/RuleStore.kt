@@ -1,5 +1,6 @@
 package com.learn.antilazy
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.SharedPreferences
 import org.json.JSONArray
@@ -34,10 +35,14 @@ object RuleStore {
     // 与服务、引擎、通知器共享的偏好键
     const val KEY_RUNNING = "running"
     const val KEY_USER_STOPPED = "user_stopped"
-    const val KEY_SAVED_AT = "saved_at"
+    const val KEY_CHECKPOINT_ELAPSED = "checkpoint_elapsed"
+    const val KEY_BOOT_COUNT = "boot_count"
+    const val KEY_WAS_UNLOCKED = "was_unlocked"
+    const val KEY_LOCKED_AT_ELAPSED = "locked_at_elapsed"
+    const val KEY_LAST_ENABLE_WALL = "last_enable_wall"
+    const val KEY_LAST_HEALTH_WARN_ELAPSED = "last_health_warn_elapsed"
     const val KEY_LAST_REMINDER_AT = "last_reminder_at"
     const val KEY_REMIND_COUNT = "remind_count"
-    const val KEY_NEXT_NOTIF_ID = "next_notif_id"
 
     private const val KEY_RULES = "rules_json"
     private const val KEY_PROGRESS = "progress_json"
@@ -48,23 +53,29 @@ object RuleStore {
     fun load(context: Context): MutableList<Rule> {
         val prefs = prefs(context)
         val list = mutableListOf<Rule>()
-        prefs.getString(KEY_RULES, null)?.let { raw ->
+        val raw = prefs.getString(KEY_RULES, null)
+        val parsed = raw?.let {
             runCatching {
+                val parsedRules = mutableListOf<Rule>()
                 val arr = JSONArray(raw)
                 for (i in 0 until arr.length()) {
                     val o = arr.getJSONObject(i)
-                    list.add(
+                    parsedRules.add(
                         Rule(
                             id = o.getLong("id"),
                             intervalMinutes = o.getInt("minutes").coerceIn(1, 720),
-                            text = o.getString("text"),
+                            text = o.getString("text").take(500),
                             enabled = o.optBoolean("enabled", true)
                         )
                     )
                 }
-            }
+                parsedRules
+            }.getOrNull()
         }
-        if (list.isEmpty() && !prefs.getBoolean(KEY_SEEDED, false)) {
+        if (parsed != null) list.addAll(parsed)
+        // Missing/corrupt JSON also repairs installs affected by old persistence bugs.
+        val needsRepair = raw == null || parsed == null
+        if (list.isEmpty() && (needsRepair || !prefs.getBoolean(KEY_SEEDED, false))) {
             list.add(
                 Rule(
                     id = nextId(context, list),
@@ -80,7 +91,13 @@ object RuleStore {
     }
 
     fun save(context: Context, rules: List<Rule>) {
-        prefs(context).edit().putString(KEY_RULES, encode(rules)).apply()
+        val prefs = prefs(context)
+        val ids = rules.mapTo(mutableSetOf()) { it.id }
+        val cleanedProgress = loadProgress(prefs).filterKeys { it in ids }
+        prefs.edit()
+            .putString(KEY_RULES, encode(rules))
+            .putString(KEY_PROGRESS, encodeProgress(cleanedProgress))
+            .apply()
     }
 
     fun loadProgress(prefs: SharedPreferences): MutableMap<Long, Long> {
@@ -96,11 +113,44 @@ object RuleStore {
         return map
     }
 
-    fun saveProgress(prefs: SharedPreferences, progress: Map<Long, Long>) {
-        val o = JSONObject()
-        progress.forEach { (id, ms) -> o.put(id.toString(), ms) }
-        prefs.edit().putString(KEY_PROGRESS, o.toString()).apply()
+    /** Progress and its monotonic anchor are always stored in the same generation. */
+    @SuppressLint("ApplySharedPref") // sync=true is used only at lifecycle boundaries.
+    fun checkpoint(
+        prefs: SharedPreferences,
+        progress: Map<Long, Long>,
+        checkpointElapsed: Long,
+        bootCount: Int,
+        wasUnlocked: Boolean,
+        lockedAtElapsed: Long,
+        sync: Boolean
+    ): Boolean {
+        val editor = prefs.edit()
+            .putString(KEY_PROGRESS, encodeProgress(progress))
+            .putLong(KEY_CHECKPOINT_ELAPSED, checkpointElapsed)
+            .putInt(KEY_BOOT_COUNT, bootCount)
+            .putBoolean(KEY_WAS_UNLOCKED, wasUnlocked)
+            .putLong(KEY_LOCKED_AT_ELAPSED, lockedAtElapsed)
+        return if (sync) editor.commit() else {
+            editor.apply()
+            true
+        }
     }
+
+    fun clearProgress(
+        prefs: SharedPreferences,
+        nowElapsed: Long,
+        bootCount: Int,
+        sync: Boolean
+    ): Boolean =
+        checkpoint(
+            prefs = prefs,
+            progress = emptyMap(),
+            checkpointElapsed = nowElapsed,
+            bootCount = bootCount,
+            wasUnlocked = false,
+            lockedAtElapsed = nowElapsed,
+            sync = sync
+        )
 
     /** 规则 id 单调递增，永不复用：防止新规则继承已删规则的残留进度 */
     fun nextId(context: Context, rules: List<Rule>): Long {
@@ -124,6 +174,12 @@ object RuleStore {
             )
         }
         return arr.toString()
+    }
+
+    private fun encodeProgress(progress: Map<Long, Long>): String {
+        val o = JSONObject()
+        progress.forEach { (id, ms) -> o.put(id.toString(), ms.coerceAtLeast(0L)) }
+        return o.toString()
     }
 
     private fun prefs(context: Context): SharedPreferences =

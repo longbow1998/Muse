@@ -7,7 +7,7 @@ import android.os.Looper
 import android.widget.Button
 import android.widget.TextView
 
-/** 到点全屏弹出的提醒页：盖在任何应用之上，20 秒后自动关闭 */
+/** Reminder detail opened when the user taps a reminder notification. */
 class ReminderActivity : Activity() {
 
     companion object {
@@ -27,8 +27,7 @@ class ReminderActivity : Activity() {
         val text = intent.getStringExtra(EXTRA_TEXT) ?: getString(R.string.default_reminder_text)
         findViewById<TextView>(R.id.tv_reminder_text).text = text
 
-        // 全屏已展示，清掉通知栏对应卡片，避免历史卡片无限堆叠
-        // （全屏被系统降级为横幅时本页不会启动，卡片自然保留作为痕迹）
+        // The notification was opened, so remove its card immediately.
         intent.getIntExtra(EXTRA_NOTIF_ID, 0).takeIf { it > 0 }?.let {
             getSystemService(android.app.NotificationManager::class.java)?.cancel(it)
         }

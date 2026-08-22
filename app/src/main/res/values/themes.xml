@@ -5,9 +5,10 @@
         <item name="android:colorPrimaryDark">@color/brand_dark</item>
         <item name="android:colorAccent">@color/brand</item>
         <item name="android:statusBarColor">@color/brand_dark</item>
+        <item name="android:windowBackground">@color/bg</item>
     </style>
 
-    <!-- 全屏提醒页：整屏半透明浮层，内部自带遮罩与居中卡片 -->
+    <!-- 提醒详情页：整屏半透明浮层，内部自带遮罩与居中卡片 -->
     <style name="Theme.Reminder" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>

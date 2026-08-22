@@ -7,14 +7,11 @@ import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
 
-/**
- * 兜底闹钟：即使服务进程被系统杀掉，也会周期性被拉起。
- * ReminderEngine.onAlarm 直接用落盘数据补算进度并弹提醒，
- * 不需要服务存活；监控停用后闹钟链自动终止。
- */
+/** Watchdog alarm: attempts service recovery but never fabricates active-use progress. */
 class TickReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
+        if (MonitorService.applyUserRequestedStopIfNeeded(context)) return
         if (ReminderEngine.onAlarm(context)) {
             scheduleNext(context)
         }
@@ -24,7 +21,7 @@ class TickReceiver : BroadcastReceiver() {
         private const val REQUEST_CODE = 1001
         private const val INTERVAL_MS = 30_000L
 
-        /** 非唤醒闹钟：灭屏期间顺延，亮屏使用时准时触发 */
+        /** Non-wakeup alarm: enough for health checks without waking a locked device. */
         fun scheduleNext(context: Context) {
             val am = context.getSystemService(AlarmManager::class.java) ?: return
             val pi = PendingIntent.getBroadcast(
@@ -39,5 +36,18 @@ class TickReceiver : BroadcastReceiver() {
                 pi
             )
         }
+
+        fun cancel(context: Context) {
+            val am = context.getSystemService(AlarmManager::class.java) ?: return
+            am.cancel(pendingIntent(context))
+        }
+
+        private fun pendingIntent(context: Context): PendingIntent =
+            PendingIntent.getBroadcast(
+                context,
+                REQUEST_CODE,
+                Intent(context, TickReceiver::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
     }
 }

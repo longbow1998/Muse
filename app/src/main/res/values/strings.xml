@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">反懒惰提醒</string>
+    <string name="app_name">防沉迷提醒</string>
 
     <string name="subtitle">仅在手机解锁使用时计时，锁屏/灭屏暂停；锁屏超过 1 分钟自动重新计数。</string>
 
     <string name="toggle_label">开始 / 停止监控</string>
 
     <string name="status_stopped">已停止。打开上方开关开始监控。</string>
-    <string name="status_service_dead">监控开启中 · 服务被系统回收，兜底闹钟计时中（打开本页自动恢复实时服务）</string>
+    <string name="status_service_dead">监控开启中 · 服务被系统回收，正在尝试恢复（恢复前计时暂停）</string>
     <string name="status_locked_paused">锁屏中，计时已暂停 ⏸</string>
     <string name="master_summary_fmt">使用中 · 已启用 %1$d 条规则，最近一条 %2$s 后提醒</string>
     <string name="no_enabled_rules">没有启用中的规则，请新增或开启</string>
@@ -23,43 +23,57 @@
     <string name="editor_delete">删除规则</string>
     <string name="editor_cancel">取消</string>
     <string name="editor_label_text">提醒内容（到点弹出的文字）</string>
-    <string name="editor_hint_text">例如：不要懒惰，想一下现在要做什么</string>
+    <string name="editor_hint_text">例如：刷短视频超 30 分钟就提醒我停下来</string>
     <string name="editor_label_minutes">触发间隔（分钟，1–720）</string>
     <string name="toast_need_text">请填写提醒内容</string>
     <string name="toast_bad_minutes">间隔需为 1–720 的整数分钟</string>
     <string name="toast_rule_deleted">规则已删除</string>
 
-    <string name="default_reminder_text">不要懒惰，想一下现在要做什么</string>
+    <string name="default_reminder_text">该停下来想一想了</string>
     <string name="reminder_title">该停下来想一想了</string>
     <string name="dismiss_button">知道了，继续</string>
-    <string name="fsr_denied_hint">提示：全屏提醒权限未开启，将退回横幅通知（设置 → 应用 → 反懒惰提醒 → 特殊权限 → 全屏通知）</string>
+    <string name="overlay_request">允许显示在其他应用上层（强提醒）</string>
+    <string name="overlay_done">已允许显示在其他应用上层 ✓</string>
+    <string name="overlay_missing_warn">提示：未授予“显示在其他应用上层”，刷抖音时只能看到横幅通知。建议授予该权限。</string>
+    <string name="delivery_permission_required">请至少开启通知权限或“显示在其他应用上层”权限，否则提醒无法显示。</string>
 
     <string name="test_button">立即测试一次提醒</string>
+    <string name="usage_button">今日使用统计</string>
+
+    <string name="usage_title">今日使用统计</string>
+    <string name="usage_summary_fmt">今天共使用手机 %1$s（%2$d 个应用）</string>
+    <string name="usage_empty">今天暂无使用记录</string>
+    <string name="usage_no_permission">尚未授权「查看使用情况」。此权限仅用于在本机统计各 App 使用时长，数据不会离开手机。</string>
+    <string name="usage_grant">去授权使用情况访问</string>
     <string name="test_reminder_title">测试提醒（链路正常 ✓）</string>
     <string name="test_hint_toast">请先打开监控开关，再测试提醒</string>
 
     <string name="status_last_reminder_fmt">上次提醒：%1$s · 已提醒 %2$d 次</string>
     <string name="status_no_reminder_yet">尚未提醒过（任一启用规则累计到点即触发）</string>
-    <string name="notif_denied_warn">⚠️ 未授予通知权限，提醒将无法显示！请到 系统设置 → 应用 → 反懒惰提醒 → 通知 开启</string>
+    <string name="notif_denied_warn">⚠️ 通知权限或提醒通知渠道不可用；已授权强提醒时仍可显示悬浮提醒。建议到系统通知设置中开启。</string>
     <string name="status_stalled_warn">⚠️ 计时已停滞超过 5 分钟（服务与闹钟均被系统拦截）。请重新开关一次监控，或检查是否被「强制停止」。</string>
 
-    <string name="monitor_title">反懒惰监控运行中</string>
+    <string name="monitor_title">防沉迷监控运行中</string>
     <string name="fg_summary_fmt">已启用 %1$d 条规则 · 最近一条 %2$s 后提醒</string>
     <string name="fg_no_enabled_rules">运行中（没有启用的规则）</string>
 
     <string name="channel_monitor">后台监控</string>
     <string name="channel_monitor_desc">常驻状态通知，显示计时进度</string>
-    <string name="channel_reminder">反懒惰提醒</string>
+    <string name="channel_reminder">防沉迷提醒</string>
     <string name="channel_reminder_desc">到点的提醒通知（带提示音与振动）</string>
+    <string name="channel_health">监控状态</string>
+    <string name="channel_health_desc">后台服务被系统停止时的健康告警</string>
+    <string name="health_title">防沉迷计时已暂停</string>
+    <string name="health_text">后台服务曾被系统回收，恢复前计时已暂停；若未自动恢复，请打开 App 并按保活指南授权。</string>
 
-    <string name="battery_request">申请忽略电池优化（防止后台被杀）</string>
+    <string name="battery_request">打开电池优化设置（建议设为不优化）</string>
     <string name="battery_done">已忽略电池优化 ✓</string>
 
     <string name="guide_button">后台保活指南（被杀必看）</string>
     <string name="keepalive_title">让提醒稳定运行</string>
     <string name="keepalive_ok">知道了</string>
     <string name="keepalive_open_settings">去应用设置</string>
-    <string name="keepalive_steps">① 点下方「申请忽略电池优化」并选择允许\n\n② 系统设置 → 应用管理 → 反懒惰提醒：开启「自启动」\n\n③ 省电策略设为无限制：\n· 小米/红米：应用信息 → 省电策略 → 无限制\n· 华为/荣耀：启动管理 → 手动管理，三项全开\n· OPPO/vivo：耗电管理 → 允许后台运行\n\n④ 最近任务界面下拉本应用卡片加锁，防止一键清理被杀\n\n⑤ 保持通知权限与「全屏通知/悬浮通知」开启\n\n※ 特别注意：「强制停止」或部分清理工具会连兜底闹钟一起停掉，之后需重新打开本 App 一次才能恢复计时。\n\n※ 即使进程仍被杀，兜底闹钟也会到点弹出提醒；只是通知栏的实时倒计时需要服务存活才刷新。</string>
+    <string name="keepalive_steps">① 点「允许显示在其他应用上层」，确保刷抖音时也能看到整屏提醒\n\n② 点「打开电池优化设置」，将本应用设为不优化\n\n③ 系统设置 → 应用管理 → 防沉迷提醒：开启「自启动」\n\n④ 省电策略设为无限制：\n· 小米/红米：应用信息 → 省电策略 → 无限制\n· 华为/荣耀：启动管理 → 手动管理，三项全开\n· OPPO/vivo：耗电管理 → 允许后台运行\n\n⑤ 最近任务界面下拉本应用卡片加锁，防止一键清理被杀\n\n※ Android 无法在服务死亡后准确还原期间的锁屏历史，因此服务被系统回收时计时会暂停并发健康告警，不会伪造进度。\n\n※ 「强制停止」会连服务和闹钟一起停掉，之后需重新打开本 App 才能恢复。</string>
 
     <string name="start_failed">监控启动失败，请重试</string>
 

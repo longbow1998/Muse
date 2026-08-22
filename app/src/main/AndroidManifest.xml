@@ -1,13 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- 仅用于本机统计各应用使用时长；Play 保护权限，需用户在设置中手动授权 -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
 
     <application
         android:allowBackup="true"
@@ -25,13 +29,18 @@
             </intent-filter>
         </activity>
 
-        <!-- 全屏提醒页：独立任务栈，关闭后回到用户之前的应用；不进最近任务 -->
+        <!-- 通知详情页：独立任务栈，关闭后回到用户之前的应用；不进最近任务 -->
         <activity
             android:name=".ReminderActivity"
             android:excludeFromRecents="true"
             android:exported="false"
             android:taskAffinity=""
             android:theme="@style/Theme.Reminder" />
+
+        <activity
+            android:name=".UsageStatsActivity"
+            android:exported="false"
+            android:label="@string/usage_title" />
 
         <service
             android:name=".MonitorService"
@@ -51,7 +60,7 @@
             </intent-filter>
         </receiver>
 
-        <!-- 兜底对账闹钟：进程被杀也能拉起补算进度 -->
+        <!-- 健康 watchdog：尝试恢复服务，但不伪造服务死亡期间的使用进度 -->
         <receiver
             android:name=".TickReceiver"
             android:enabled="true"

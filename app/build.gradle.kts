@@ -11,8 +11,8 @@ android {
         applicationId = "com.learn.antilazy"
         minSdk = 26
         targetSdk = 34
-        versionCode = 7
-        versionName = "1.3.3"
+        versionCode = 9
+        versionName = "1.5.0"
     }
 
     buildTypes {
@@ -29,4 +29,8 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+}
+
+dependencies {
+    testImplementation("junit:junit:4.13.2")
 }
