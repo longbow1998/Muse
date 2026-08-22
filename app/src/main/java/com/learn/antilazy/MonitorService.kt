@@ -151,12 +151,21 @@ class MonitorService : Service() {
         fun sendTestReminder(context: Context): Boolean {
             if (!wasRunningBefore(context)) return false
             val rule = RuleStore.load(context).firstOrNull { it.enabled }
+            val text = rule?.text ?: context.getString(R.string.default_reminder_text)
             return Notifier.fireReminder(
                 context,
                 rule?.id ?: -1L,
                 context.getString(R.string.test_reminder_title),
-                rule?.text ?: context.getString(R.string.default_reminder_text)
+                enrichWithForeground(text, context)
             )
+        }
+
+        /** 提醒正文附加“此刻在用哪个 App、今天已用多久”；无权限或拿不到时静默跳过。 */
+        private fun enrichWithForeground(ruleText: String, context: Context? = null): String {
+            val ctx = context ?: instance
+            val line = ctx?.let { runCatching { ForegroundProbe.describe(it) }.getOrNull() }
+                ?: return ruleText
+            return "$ruleText\n\n$line"
         }
 
         fun formatDuration(ms: Long): String {
@@ -222,7 +231,7 @@ class MonitorService : Service() {
                         this@MonitorService,
                         rt.rule.id,
                         getString(R.string.reminder_title),
-                        rt.rule.text
+                        enrichWithForeground(rt.rule.text)
                     )
                     if (delivered) {
                         rt.elapsedMs = if (wasWaitingForDelivery) 0L else advanced.elapsedMs

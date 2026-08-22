@@ -31,6 +31,8 @@
 
     <string name="default_reminder_text">该停下来想一想了</string>
     <string name="reminder_title">该停下来想一想了</string>
+    <string name="context_app_fmt">此刻在用：%1$s · 今天已用 %2$s</string>
+    <string name="context_app_only_fmt">此刻在用：%1$s</string>
     <string name="dismiss_button">知道了，继续</string>
     <string name="overlay_request">允许显示在其他应用上层（强提醒）</string>
     <string name="overlay_done">已允许显示在其他应用上层 ✓</string>
@@ -41,8 +43,17 @@
     <string name="usage_button">今日使用统计</string>
 
     <string name="usage_title">今日使用统计</string>
+    <string name="usage_tab_today">今日</string>
+    <string name="usage_tab_7d">近 7 天</string>
+    <string name="usage_tab_30d">近 30 天</string>
     <string name="usage_summary_fmt">今天共使用手机 %1$s（%2$d 个应用）</string>
+    <string name="usage_range_summary_fmt">近 %1$d 天共使用 %2$s，日均 %3$s（%4$d 个应用）</string>
+    <string name="usage_less_than_avg_fmt">比过去 7 天日均少 %1$s ✓</string>
+    <string name="usage_more_than_avg_fmt">比过去 7 天日均多 %1$s</string>
+    <string name="usage_compare_flat">与过去 7 天日均基本持平</string>
     <string name="usage_empty">今天暂无使用记录</string>
+    <string name="usage_empty_range">该时段暂无使用记录</string>
+    <string name="usage_chart_desc">每日使用时长柱状图</string>
     <string name="usage_no_permission">尚未授权「查看使用情况」。此权限仅用于在本机统计各 App 使用时长，数据不会离开手机。</string>
     <string name="usage_grant">去授权使用情况访问</string>
     <string name="test_reminder_title">测试提醒（链路正常 ✓）</string>
