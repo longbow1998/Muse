@@ -11,6 +11,16 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- 应用内直达“忽略电池优化”授权对话框；仅侧载分发，不受应用商店政策限制 -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- 声明可见“带桌面图标的应用”（Android 11+ 包可见性）：
+         仅用于把使用统计/前台感知里的包名解析成真实应用名（如 com.tencent.mm→微信），
+         不是权限，无需用户授权，也拿不到任何额外数据。 -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- 应用内检查 GitHub Release 并下载 APK 后唤起系统安装器 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />

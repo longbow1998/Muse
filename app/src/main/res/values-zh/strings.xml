@@ -40,9 +40,9 @@
     <string name="overlay_missing_warn">提示：未授予“显示在其他应用上层”，刷抖音时只能看到横幅通知。建议授予该权限。</string>
 
     <string name="test_button">立即测试一次提醒</string>
-    <string name="usage_button">今日使用统计</string>
+    <string name="usage_button">使用统计</string>
 
-    <string name="usage_title">今日使用统计</string>
+    <string name="usage_title">使用统计</string>
     <string name="usage_tab_today">今日</string>
     <string name="usage_tab_7d">近 7 天</string>
     <string name="usage_tab_30d">近 30 天</string>
