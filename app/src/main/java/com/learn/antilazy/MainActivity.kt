@@ -273,6 +273,13 @@ class MainActivity : Activity() {
         }
 
         if (active) {
+            // 计时停滞自检：监控开启且屏幕解锁，但墙钟超过 5 分钟没走动，
+            // 说明服务与闹钟都被系统拦截了（常见于强停/深度休眠）
+            if (ReminderEngine.isUnlockedNow(this) &&
+                ReminderEngine.lastTickAgeMs(this) > 5 * 60_000L
+            ) {
+                sb.append('\n').append(getString(R.string.status_stalled_warn))
+            }
             val last = ReminderEngine.prefs(this).getLong(RuleStore.KEY_LAST_REMINDER_AT, 0L)
             sb.append('\n')
             sb.append(
@@ -291,6 +298,10 @@ class MainActivity : Activity() {
 
         tvStatus.text = sb.toString()
     }
+
+    /** 软键盘弹出时避免按钮被遮挡：对话框内容包一层滚动容器 */
+    private fun scrollWrap(child: android.view.View): android.widget.ScrollView =
+        android.widget.ScrollView(this).apply { addView(child) }
 
     private fun showKeepAliveGuide() {
         AlertDialog.Builder(this)
@@ -315,7 +326,7 @@ class MainActivity : Activity() {
     private fun openEditor(existing: Rule?) {
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(16), dp(24), 0)
+            setPadding(dp(24), dp(16), dp(24), dp(8))
         }
 
         fun label(textRes: Int): TextView = TextView(this).apply {
@@ -343,7 +354,7 @@ class MainActivity : Activity() {
 
         val dialog = AlertDialog.Builder(this)
             .setTitle(getString(if (existing == null) R.string.editor_title_new else R.string.editor_title_edit))
-            .setView(container)
+            .setView(scrollWrap(container))
             .create()
 
         dialog.show()

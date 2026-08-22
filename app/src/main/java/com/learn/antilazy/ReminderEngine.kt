@@ -28,6 +28,13 @@ object ReminderEngine {
 
     private const val MIN_DELTA_MS = 500L
 
+    /**
+     * 增量超过该值说明设备休眠期间闹钟没触发过（非唤醒闹钟灭屏会顺延），
+     * 这段时间必然处于锁屏/灭屏，不得计为使用量：直接按锁屏重置处理。
+     * 正常场景（用户使用中）闹钟每 30 秒都能触发，delta 不会超过 ~35 秒。
+     */
+    private const val GAP_SUSPICIOUS_MS = 90_000L
+
     private const val KEY_LAST_TICK_WALL = "last_tick_wall"
     private const val KEY_WAS_UNLOCKED = "was_unlocked"
     private const val KEY_LOCKED_AT = "locked_at"
@@ -119,12 +126,25 @@ object ReminderEngine {
         val delta = consumeDelta(prefs)
         if (delta < MIN_DELTA_MS) return true
 
+        // 闹钟静默过大：设备休眠（锁屏）所致，按锁屏重置处理而非计入使用量
+        if (delta > GAP_SUSPICIOUS_MS) {
+            val zeroed = RuleStore.load(context).associate { it.id to 0L }
+            RuleStore.saveProgress(prefs, zeroed)
+            prefs.edit().putLong(RuleStore.KEY_SAVED_AT, System.currentTimeMillis()).apply()
+            Log.d("ReminderEngine", "gap ${delta}ms -> treat as lock, progress reset")
+            return true
+        }
+
         val rules = RuleStore.load(context)
         val progress = RuleStore.loadProgress(prefs)
         val newProgress = mutableMapOf<Long, Long>()
         for (rule in rules) {
+            if (!rule.enabled) {
+                progress[rule.id]?.let { newProgress[rule.id] = it }
+                continue
+            }
             val elapsed = (progress[rule.id] ?: 0L) + delta
-            if (rule.enabled && elapsed >= rule.intervalMinutes * 60_000L) {
+            if (elapsed >= rule.intervalMinutes * 60_000L) {
                 newProgress[rule.id] = 0L
                 Notifier.fireReminder(
                     context,
@@ -133,11 +153,17 @@ object ReminderEngine {
                 )
                 Log.d("ReminderEngine", "alarm fired reminder id=${rule.id}")
             } else {
-                newProgress[rule.id] = elapsed.coerceAtMost(rule.intervalMinutes * 60_000L)
+                newProgress[rule.id] = elapsed
             }
         }
         RuleStore.saveProgress(prefs, newProgress)
         prefs.edit().putLong(RuleStore.KEY_SAVED_AT, System.currentTimeMillis()).apply()
         return true
+    }
+
+    /** 距最后一次计时的时长，用于 UI 检测计时停滞 */
+    fun lastTickAgeMs(context: Context): Long {
+        val last = prefs(context).getLong(KEY_LAST_TICK_WALL, 0L)
+        return if (last <= 0) Long.MAX_VALUE else System.currentTimeMillis() - last
     }
 }

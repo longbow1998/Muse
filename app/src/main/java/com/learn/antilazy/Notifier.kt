@@ -57,6 +57,7 @@ object Notifier {
                 notifId,
                 Intent(context, ReminderActivity::class.java)
                     .putExtra(ReminderActivity.EXTRA_TEXT, text)
+                    .putExtra(ReminderActivity.EXTRA_NOTIF_ID, notifId)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
