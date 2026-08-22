@@ -1,6 +1,7 @@
 package com.learn.antilazy
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.DownloadManager
@@ -633,11 +634,20 @@ class MainActivity : Activity() {
         }
     }
 
+    @SuppressLint("BatteryLife") // 仅经 GitHub 侧载分发；直达授权对话框的成功率最高。
     private fun requestIgnoreBatteryOptimizations() {
         val pm = batteryManager()
         if (pm.isIgnoringBatteryOptimizations(packageName)) return
-        runCatching {
-            startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        val directDialogOk = runCatching {
+            startActivity(
+                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                    .setData(Uri.parse("package:$packageName"))
+            )
+        }.isSuccess
+        if (!directDialogOk) {
+            runCatching {
+                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            }
         }
     }
 
@@ -676,8 +686,7 @@ class MainActivity : Activity() {
             runOnUiThread {
                 btnCheckUpdate.isEnabled = true
                 when {
-                    release == null ->
-                        Toast.makeText(this, R.string.update_failed, Toast.LENGTH_SHORT).show()
+                    release == null -> showUpdateFailedDialog()
                     !Updater.isNewer(release.tagName, currentVersionName()) ->
                         Toast.makeText(
                             this,
@@ -688,6 +697,19 @@ class MainActivity : Activity() {
                 }
             }
         }.start()
+    }
+
+    private fun showUpdateFailedDialog() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.update_failed_title)
+            .setMessage(R.string.update_failed_net)
+            .setPositiveButton(R.string.update_retry) { _, _ -> checkForUpdate() }
+            .setNegativeButton(R.string.update_open_releases_page) { _, _ ->
+                runCatching {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Updater.RELEASES_PAGE)))
+                }
+            }
+            .show()
     }
 
     private fun showUpdateDialog(release: Updater.Release) {

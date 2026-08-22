@@ -78,6 +78,15 @@
             android:paddingBottom="8dp" />
 
         <TextView
+            android:id="@+id/tv_perms_hint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/perms_hint"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
+
+        <TextView
             android:id="@+id/tv_rules_label"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

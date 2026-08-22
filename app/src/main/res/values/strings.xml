@@ -61,12 +61,16 @@
     <string name="perm_battery">忽略电池优化（降低被杀概率，建议）</string>
     <string name="perm_status_on">已开启 ✓</string>
     <string name="perm_status_off">未开启</string>
+    <string name="perms_hint">不同手机的设置路径可能不同；若此处未能成功开启（尤其电池优化），请按下方「后台保活指南」逐步设置。</string>
     <string name="notif_required_title">需要通知权限</string>
     <string name="notif_required_message">到点提醒通过通知展示。请允许「防沉迷提醒」发送通知，否则可能收不到任何提醒。</string>
 
     <string name="update_button">检查更新</string>
     <string name="update_latest">已是最新版本：%1$s</string>
-    <string name="update_failed">检查更新失败，请稍后重试</string>
+    <string name="update_failed_title">检查更新失败</string>
+    <string name="update_failed_net">无法连接 GitHub。部分网络环境访问受限：可重试、切换网络，或直接在浏览器打开发布页下载。</string>
+    <string name="update_retry">重试</string>
+    <string name="update_open_releases_page">浏览器打开下载页</string>
     <string name="update_available_title">发现新版本 %1$s</string>
     <string name="update_no_notes">本次更新没有填写说明。</string>
     <string name="update_download">下载并安装</string>
