@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- 应用内检查 GitHub Release 并下载 APK 后唤起系统安装器 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- 仅用于本机统计各应用使用时长；Play 保护权限，需用户在设置中手动授权 -->
     <uses-permission
         android:name="android.permission.PACKAGE_USAGE_STATS"

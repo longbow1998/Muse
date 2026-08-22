@@ -1,6 +1,7 @@
 package com.learn.antilazy
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Typeface
 import android.os.Bundle
@@ -9,8 +10,10 @@ import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
@@ -28,7 +31,9 @@ class UsageStatsActivity : Activity() {
     private lateinit var tvSummary: TextView
     private lateinit var llApps: LinearLayout
     private lateinit var btnGrant: Button
+    private lateinit var btnSetCapacity: Button
     private lateinit var chart: UsageBarChartView
+    private lateinit var llBattery: LinearLayout
 
     private var modeIndex = 0
     private var loadSeq = 0
@@ -41,7 +46,11 @@ class UsageStatsActivity : Activity() {
         tvSummary = findViewById(R.id.tv_usage_summary)
         llApps = findViewById(R.id.ll_usage_apps)
         btnGrant = findViewById(R.id.btn_grant_usage)
+        btnSetCapacity = findViewById(R.id.btn_set_capacity)
+        llBattery = findViewById(R.id.ll_battery)
         chart = findViewById(R.id.usage_chart)
+
+        btnSetCapacity.setOnClickListener { showCapacityDialog() }
 
         tabViews.forEachIndexed { index, tab ->
             tab.setOnClickListener {
@@ -87,9 +96,16 @@ class UsageStatsActivity : Activity() {
         val seq = ++loadSeq
         val days = MODE_DAYS[modeIndex]
         Thread {
+            BatteryEstimator.takeSample(this)
             val model = runCatching { buildModel(days) }.getOrNull()
+            val battery = runCatching {
+                BatteryEstimator.estimateDay(this, LocalDate.now())
+            }.getOrNull()
             runOnUiThread {
-                if (seq == loadSeq && !isDestroyed) bindModel(model)
+                if (seq == loadSeq && !isDestroyed) {
+                    bindModel(model)
+                    bindBattery(battery)
+                }
             }
         }.start()
     }
@@ -251,4 +267,84 @@ class UsageStatsActivity : Activity() {
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
+    // ---------- 耗电估算 ----------
+
+    private fun bindBattery(estimate: BatteryEstimator.DayEstimate?) {
+        llBattery.removeAllViews()
+        if (estimate == null) {
+            addBatteryText(getString(R.string.battery_empty))
+            return
+        }
+        val capacity = BatteryEstimator.capacityMah(this)
+        val capacityPct = if (capacity > 0) estimate.totalDrainMah / capacity * 100 else 0.0
+        addBatteryText(
+            getString(
+                R.string.battery_summary_fmt,
+                trimNum(estimate.totalDrainMah),
+                trimNum(capacityPct)
+            ),
+            bold = true
+        )
+        val sorted = estimate.perAppMah.entries.sortedByDescending { it.value }
+        if (sorted.isEmpty()) {
+            addBatteryText(getString(R.string.battery_empty))
+            return
+        }
+        sorted.forEach { (pkg, mah) ->
+            val pct = if (capacity > 0) mah / capacity * 100 else 0.0
+            addBatteryText("${appLabel(pkg)} · ${trimNum(mah)} mAh（${trimNum(pct)}%）")
+        }
+    }
+
+    private fun trimNum(v: Double): String {
+        return if (v >= 100) v.toInt().toString()
+        else String.format(java.util.Locale.CHINESE, "%.1f", v).removeSuffix(".0").let {
+            if (it.endsWith(".0")) it.dropLast(2) else it
+        }
+    }
+
+    private fun addBatteryText(text: String, bold: Boolean = false) {
+        llBattery.addView(TextView(this).apply {
+            this.text = text
+            textSize = if (bold) 15f else 13f
+            setTextColor(getColor(if (bold) R.color.text_primary else R.color.text_secondary))
+            if (bold) typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, dp(6), 0, dp(6))
+        })
+    }
+
+    private fun showCapacityDialog() {
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(16), dp(24), 0)
+        }
+        val input = EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            hint = getString(R.string.battery_capacity_hint)
+            setText(BatteryEstimator.capacityMah(this@UsageStatsActivity).toString())
+        }
+        container.addView(input)
+
+        AlertDialog.Builder(this)
+            .setTitle(
+                getString(
+                    R.string.battery_capacity_title,
+                    BatteryEstimator.capacityMah(this)
+                )
+            )
+            .setView(container)
+            .setPositiveButton(R.string.editor_save) { _, _ ->
+                val value = input.text.toString().toIntOrNull()
+                if (value != null && value in 500..30000) {
+                    BatteryEstimator.setCapacityMah(this, value)
+                    Toast.makeText(this, R.string.battery_capacity_saved, Toast.LENGTH_SHORT).show()
+                    render()
+                } else {
+                    Toast.makeText(this, R.string.battery_capacity_invalid, Toast.LENGTH_LONG).show()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
 }

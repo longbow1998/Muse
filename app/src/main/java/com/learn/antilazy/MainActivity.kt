@@ -3,12 +3,17 @@ package com.learn.antilazy
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.app.DownloadManager
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
@@ -32,18 +37,21 @@ class MainActivity : Activity() {
         /** 发起启动后的宽限期，期间不判定"服务没起来" */
         private const val START_GRACE_MS = 3000L
 
+        /** 通知权限运行时申请的 requestCode */
+        private const val REQ_NOTIF_PERMISSION = 100
+
         private const val MIN_MINUTES = 1
         private const val MAX_MINUTES = 720
     }
 
     private lateinit var switchToggle: Switch
     private lateinit var tvStatus: TextView
-    private lateinit var btnBattery: Button
     private lateinit var btnTest: Button
     private lateinit var btnUsage: Button
+    private lateinit var btnCheckUpdate: Button
     private lateinit var btnAddRule: Button
     private lateinit var btnGuide: Button
-    private lateinit var btnOverlay: Button
+    private lateinit var llPermissions: LinearLayout
     private lateinit var llRules: LinearLayout
 
     private val handler = Handler(Looper.getMainLooper())
@@ -78,12 +86,12 @@ class MainActivity : Activity() {
 
         switchToggle = findViewById(R.id.sw_toggle)
         tvStatus = findViewById(R.id.tv_status)
-        btnBattery = findViewById(R.id.btn_battery)
         btnTest = findViewById(R.id.btn_test)
         btnUsage = findViewById(R.id.btn_usage)
+        btnCheckUpdate = findViewById(R.id.btn_check_update)
         btnAddRule = findViewById(R.id.btn_add_rule)
         btnGuide = findViewById(R.id.btn_guide)
-        btnOverlay = findViewById(R.id.btn_overlay)
+        llPermissions = findViewById(R.id.ll_permissions)
         llRules = findViewById(R.id.ll_rules)
 
         switchToggle.setOnCheckedChangeListener { _, checked ->
@@ -98,23 +106,20 @@ class MainActivity : Activity() {
                     PackageManager.PERMISSION_GRANTED
                 ) {
                     pendingStartAfterPermission = true
-                    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
+                    requestPermissions(
+                        arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                        REQ_NOTIF_PERMISSION
+                    )
                 } else {
                     desiredRunning = false
                     switchToggle.isChecked = false
-                    Toast.makeText(
-                        this,
-                        R.string.delivery_permission_required,
-                        Toast.LENGTH_LONG
-                    ).show()
+                    showNotifRequiredDialog()
                 }
             } else {
                 pendingStartAfterPermission = false
                 MonitorService.stop(this)
             }
         }
-
-        btnBattery.setOnClickListener { requestIgnoreBatteryOptimizations() }
 
         btnTest.setOnClickListener {
             if (!MonitorService.sendTestReminder(this)) {
@@ -129,10 +134,24 @@ class MainActivity : Activity() {
         }
 
         btnGuide.setOnClickListener { showKeepAliveGuide() }
-        btnOverlay.setOnClickListener { requestOverlayPermission() }
+        btnCheckUpdate.setOnClickListener { checkForUpdate() }
+
+        // 点状态文字：通知不可用时直达系统通知设置
+        tvStatus.setOnClickListener {
+            if (!Notifier.canPostReminders(this)) openNotificationSettings()
+        }
+
+        val downloadFilter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(downloadReceiver, downloadFilter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(downloadReceiver, downloadFilter)
+        }
 
         uiRules = RuleStore.load(this)
         rebuildRows()
+        maybeRequestNotificationPermission()
     }
 
     override fun onResume() {
@@ -140,12 +159,11 @@ class MainActivity : Activity() {
         // 以落盘的运行标记为准：进程被杀后 companion 变量会失真。
         desiredRunning = MonitorService.wasRunningBefore(this)
         switchToggle.isChecked = desiredRunning
-        renderOverlayButton()
+        renderPermissionList()
         lastStartRequestAt = 0L
         reconcileService()
         handler.removeCallbacks(statusUpdater)
         handler.post(statusUpdater)
-        renderBatteryButton()
     }
 
     override fun onPause() {
@@ -470,7 +488,8 @@ class MainActivity : Activity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode != 100 || !pendingStartAfterPermission) return
+        renderPermissionList()
+        if (requestCode != REQ_NOTIF_PERMISSION || !pendingStartAfterPermission) return
         pendingStartAfterPermission = false
         if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED ||
             OverlayReminder.canShow(this)
@@ -479,8 +498,124 @@ class MainActivity : Activity() {
         } else {
             desiredRunning = false
             switchToggle.isChecked = false
-            Toast.makeText(this, R.string.delivery_permission_required, Toast.LENGTH_LONG).show()
+            showNotifRequiredDialog()
         }
+    }
+
+    // ---------- 权限状态面板 ----------
+
+    private class PermRow(
+        val titleRes: Int,
+        val granted: Boolean,
+        val action: () -> Unit
+    )
+
+    private fun buildPermRows(): List<PermRow> = listOf(
+        PermRow(R.string.perm_notification, Notifier.canPostReminders(this)) {
+            requestOrOpenNotification()
+        },
+        PermRow(R.string.perm_overlay, OverlayReminder.canShow(this)) {
+            requestOverlayPermission()
+        },
+        PermRow(R.string.perm_usage, UsageStatsRepository.hasUsageAccess(this)) {
+            openUsageAccessSettings()
+        },
+        PermRow(R.string.perm_battery, batteryManager().isIgnoringBatteryOptimizations(packageName)) {
+            requestIgnoreBatteryOptimizations()
+        }
+    )
+
+    private fun renderPermissionList() {
+        llPermissions.removeAllViews()
+        buildPermRows().forEach { row ->
+            val item = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, dp(10), 0, dp(10))
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { row.action(); }
+            }
+            val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            val title = TextView(this).apply {
+                text = getString(row.titleRes)
+                textSize = 15f
+                setTextColor(getColor(R.color.text_primary))
+            }
+            val status = TextView(this).apply {
+                text = getString(if (row.granted) R.string.perm_status_on else R.string.perm_status_off)
+                textSize = 12f
+                setTextColor(getColor(if (row.granted) R.color.perm_on else R.color.perm_off))
+            }
+            col.addView(title)
+            col.addView(status)
+
+            val chevron = TextView(this).apply {
+                text = "›"
+                textSize = 20f
+                setTextColor(getColor(R.color.text_secondary))
+                setPadding(dp(12), 0, 0, 0)
+            }
+
+            item.addView(col, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            item.addView(chevron)
+            llPermissions.addView(item)
+        }
+    }
+
+    /** 首次打开即主动申请通知权限（系统对话框；被永久拒绝时静默失败，由面板引导）。 */
+    private fun maybeRequestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < 33 ||
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        ) return
+        requestPermissions(
+            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+            REQ_NOTIF_PERMISSION
+        )
+    }
+
+    private fun requestOrOpenNotification() {
+        if (Notifier.canPostReminders(this)) return
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
+            shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)
+        ) {
+            requestPermissions(
+                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                REQ_NOTIF_PERMISSION
+            )
+        } else {
+            openNotificationSettings()
+        }
+    }
+
+    private fun showNotifRequiredDialog() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.notif_required_title)
+            .setMessage(R.string.notif_required_message)
+            .setPositiveButton(R.string.usage_grant) { _, _ -> openNotificationSettings() }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun openNotificationSettings() {
+        runCatching {
+            startActivity(
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+            )
+        }.onFailure {
+            runCatching {
+                startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                        .setData(Uri.parse("package:$packageName"))
+                )
+            }
+        }
+    }
+
+    private fun openUsageAccessSettings() {
+        runCatching { startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
     }
 
     private fun canShowAnyReminder(): Boolean =
@@ -498,20 +633,6 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun renderOverlayButton() {
-        val granted = OverlayReminder.canShow(this)
-        btnOverlay.isEnabled = !granted
-        btnOverlay.text = getString(
-            if (granted) R.string.overlay_done else R.string.overlay_request
-        )
-    }
-
-    private fun renderBatteryButton() {
-        val ignoring = batteryManager().isIgnoringBatteryOptimizations(packageName)
-        btnBattery.isEnabled = !ignoring
-        btnBattery.text = getString(if (ignoring) R.string.battery_done else R.string.battery_request)
-    }
-
     private fun requestIgnoreBatteryOptimizations() {
         val pm = batteryManager()
         if (pm.isIgnoringBatteryOptimizations(packageName)) return
@@ -521,4 +642,101 @@ class MainActivity : Activity() {
     }
 
     private fun batteryManager(): PowerManager = getSystemService(PowerManager::class.java)
+
+    // ---------- 在线更新（GitHub Releases） ----------
+
+    private var downloadId = -1L
+
+    private val downloadReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE) return
+            val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
+            if (id == -1L || id != downloadId || isDestroyed || isFinishing) return
+            val dm = getSystemService(DownloadManager::class.java) ?: return
+            val uri = dm.getUriForDownloadedFile(id) ?: return
+            promptInstall(uri)
+        }
+    }
+
+    private fun currentVersionName(): String =
+        if (Build.VERSION.SDK_INT >= 33) {
+            packageManager.getPackageInfo(
+                packageName,
+                PackageManager.PackageInfoFlags.of(0)
+            ).versionName ?: ""
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageInfo(packageName, 0).versionName ?: ""
+        }
+
+    private fun checkForUpdate() {
+        btnCheckUpdate.isEnabled = false
+        Thread {
+            val release = runCatching { Updater.fetchLatestRelease() }.getOrNull()
+            runOnUiThread {
+                btnCheckUpdate.isEnabled = true
+                when {
+                    release == null ->
+                        Toast.makeText(this, R.string.update_failed, Toast.LENGTH_SHORT).show()
+                    !Updater.isNewer(release.tagName, currentVersionName()) ->
+                        Toast.makeText(
+                            this,
+                            getString(R.string.update_latest, release.tagName),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    else -> showUpdateDialog(release)
+                }
+            }
+        }.start()
+    }
+
+    private fun showUpdateDialog(release: Updater.Release) {
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.update_available_title, release.tagName))
+            .setMessage(release.notes.ifBlank { getString(R.string.update_no_notes) })
+            .setPositiveButton(R.string.update_download) { _, _ ->
+                enqueueUpdateDownload(release.apkUrl)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun enqueueUpdateDownload(url: String) {
+        val dm = getSystemService(DownloadManager::class.java)
+        if (dm == null) {
+            Toast.makeText(this, R.string.update_download_failed, Toast.LENGTH_LONG).show()
+            return
+        }
+        val request = DownloadManager.Request(Uri.parse(url))
+            .setTitle(getString(R.string.app_name))
+            .setDescription(getString(R.string.update_downloading_desc))
+            .setMimeType("application/vnd.android.package-archive")
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            .setDestinationInExternalPublicDir(
+                Environment.DIRECTORY_DOWNLOADS,
+                "AntiLazy-update.apk"
+            )
+        downloadId = runCatching { dm.enqueue(request) }.getOrDefault(-1L)
+        if (downloadId == -1L) {
+            Toast.makeText(this, R.string.update_download_failed, Toast.LENGTH_LONG).show()
+        } else {
+            Toast.makeText(this, R.string.update_download_started, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun promptInstall(uri: Uri) {
+        val install = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, "application/vnd.android.package-archive")
+            .addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK
+            )
+        runCatching { startActivity(install) }.onFailure {
+            Toast.makeText(this, R.string.install_unknown_hint, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    override fun onDestroy() {
+        runCatching { unregisterReceiver(downloadReceiver) }
+        super.onDestroy()
+    }
 }

@@ -170,9 +170,14 @@ class MonitorService : Service() {
 
         fun formatDuration(ms: Long): String {
             val totalSeconds = ms.coerceAtLeast(0L) / 1000
-            val minutes = totalSeconds / 60
+            val hours = totalSeconds / 3600
+            val minutes = (totalSeconds % 3600) / 60
             val seconds = totalSeconds % 60
-            return if (minutes > 0) "${minutes}分${seconds}秒" else "${seconds}秒"
+            return when {
+                hours > 0 -> "${hours}小时${minutes}分钟"
+                minutes > 0 -> "${minutes}分${seconds}秒"
+                else -> "${seconds}秒"
+            }
         }
     }
 
@@ -185,6 +190,17 @@ class MonitorService : Service() {
     private var lastTickElapsed = 0L
     private var lockedAtElapsed = 0L
     private var currentBootCount = -1
+    private var lastBatterySampleAt = 0L
+
+    /** 电量采样间隔：足够细以归因前台 App，又不至于频繁写盘。 */
+    private val batterySampleIntervalMs = 60_000L
+
+    private fun maybeSampleBattery() {
+        val now = System.currentTimeMillis()
+        if (now - lastBatterySampleAt < batterySampleIntervalMs) return
+        lastBatterySampleAt = now
+        runCatching { BatteryEstimator.takeSample(this) }
+    }
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -203,6 +219,7 @@ class MonitorService : Service() {
                 handleLockState()
                 return
             }
+            maybeSampleBattery()
 
             val now = SystemClock.elapsedRealtime()
             val gap = (now - lastTickElapsed).coerceAtLeast(0L)
@@ -346,6 +363,7 @@ class MonitorService : Service() {
         val currentUnlocked = ReminderEngine.isUnlockedNow(this)
         if (currentUnlocked == isUnlocked) return
         val now = SystemClock.elapsedRealtime()
+        maybeSampleBattery()
         if (!currentUnlocked) {
             isUnlocked = false
             lockedAtElapsed = now

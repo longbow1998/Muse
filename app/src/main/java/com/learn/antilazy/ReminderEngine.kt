@@ -37,6 +37,7 @@ object ReminderEngine {
     fun onAlarm(context: Context): Boolean {
         val prefs = prefs(context)
         if (!prefs.getBoolean(RuleStore.KEY_RUNNING, false)) return false
+        runCatching { BatteryEstimator.takeSample(context) }
         if (MonitorService.isAlive()) return true
         val restartRequested = MonitorService.restartIfExpected(context)
         if (restartRequested && lastCheckpointAgeMs(context) <= TimerMath.LOCK_RESET_MS) return true
