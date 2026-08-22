@@ -60,7 +60,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvStatusNext: TextView
     private lateinit var tvStatusDetail: TextView
     private lateinit var ibMenu: ImageButton
-    private lateinit var ibTest: ImageButton
+    private lateinit var ibTest: TextView
     private lateinit var btnAddRule: Button
     private lateinit var llUsageEntry: View
     private lateinit var tvGuideLink: TextView
@@ -322,20 +322,21 @@ class MainActivity : AppCompatActivity() {
             ReminderEngine.lastCheckpointAgeMs(this) > 5 * 60_000L
 
         // 状态机：已停止 / 服务恢复中 / 锁屏暂停 / 运行中
-        val (headRes, headColor) = when {
-            !active -> R.string.status_stopped to R.color.text_secondary
+        val enabledCount = uiRules.count { it.enabled }
+        val (headRes, headArg, headColor) = when {
+            !active -> Triple(R.string.status_stopped, -1, R.color.text_secondary)
             !MonitorService.isRunning && unlockedNow ->
-                R.string.status_head_recovering to R.color.status_paused
-            !MonitorService.isRunning -> R.string.status_locked_paused to R.color.status_paused
-            !MonitorService.isUnlocked -> R.string.status_locked_paused to R.color.status_paused
-            stalled -> R.string.status_stalled_warn to R.color.status_error
-            else -> {
-                val enabled = uiRules.count { it.enabled }
-                if (enabled == 0) R.string.no_enabled_rules to R.color.status_paused
-                else R.string.status_head_running to R.color.status_active
-            }
+                Triple(R.string.status_head_recovering, -1, R.color.status_paused)
+            !MonitorService.isRunning ->
+                Triple(R.string.status_locked_paused, -1, R.color.status_paused)
+            !MonitorService.isUnlocked ->
+                Triple(R.string.status_locked_paused, -1, R.color.status_paused)
+            stalled -> Triple(R.string.status_stalled_warn, -1, R.color.status_error)
+            enabledCount == 0 -> Triple(R.string.no_enabled_rules, -1, R.color.status_paused)
+            else -> Triple(R.string.status_head_running, enabledCount, R.color.status_active)
         }
-        tvStatusHead.text = getString(headRes)
+        tvStatusHead.text =
+            if (headArg >= 0) getString(headRes, headArg) else getString(headRes)
         val headColorValue = getColor(headColor)
         tvStatusHead.setTextColor(headColorValue)
         vStatusDot.background = GradientDrawable().apply {

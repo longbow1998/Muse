@@ -8,7 +8,7 @@
         <string name="chevron_right" translatable="false">›</string>
 <string name="menu_more">More options</string>
     <string name="usage_entry_sub">Trends · per-app share · battery estimate</string>
-    <string name="status_head_running">Active · enabled rules: %1$d</string>
+    <string name="status_head_running">Active · rules: %1$d</string>
     <string name="status_head_recovering">Service recovering…</string>
 
     <string name="status_stopped">Stopped. Toggle the switch above to begin.</string>
@@ -27,7 +27,7 @@
     <string name="editor_delete">Delete rule</string>
     <string name="editor_cancel">Cancel</string>
     <string name="editor_label_text">Reminder text (shown when it fires)</string>
-    <string name="editor_hint_text">e.g. Stop after 30 more minutes of short videos</string>
+    <string name="editor_hint_text">e.g. Your attention right now deserves something more worthwhile.</string>
     <string name="editor_label_minutes">Interval (minutes, 1–720)</string>
     <string name="toast_need_text">Please enter the reminder text</string>
     <string name="toast_bad_minutes">Interval must be 1–720 minutes</string>
@@ -41,6 +41,7 @@
     <string name="overlay_missing_warn">Tip: without “Display over other apps”, you will only get banner notifications while watching videos. Granting is recommended.</string>
 
     <string name="test_button">Send a test reminder now</string>
+    <string name="test_button_action">Test reminder</string>
     <string name="usage_button">Usage statistics</string>
 
     <string name="usage_title">Usage statistics</string>
