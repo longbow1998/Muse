@@ -50,6 +50,7 @@ class MainActivity : Activity() {
     private lateinit var btnTest: Button
     private lateinit var btnUsage: Button
     private lateinit var btnCheckUpdate: Button
+    private lateinit var btnLanguage: Button
     private lateinit var btnAddRule: Button
     private lateinit var btnGuide: Button
     private lateinit var llPermissions: LinearLayout
@@ -80,6 +81,10 @@ class MainActivity : Activity() {
         }
     }
 
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(LanguageUtils.wrap(newBase))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -90,6 +95,7 @@ class MainActivity : Activity() {
         btnTest = findViewById(R.id.btn_test)
         btnUsage = findViewById(R.id.btn_usage)
         btnCheckUpdate = findViewById(R.id.btn_check_update)
+        btnLanguage = findViewById(R.id.btn_language)
         btnAddRule = findViewById(R.id.btn_add_rule)
         btnGuide = findViewById(R.id.btn_guide)
         llPermissions = findViewById(R.id.ll_permissions)
@@ -136,6 +142,7 @@ class MainActivity : Activity() {
 
         btnGuide.setOnClickListener { showKeepAliveGuide() }
         btnCheckUpdate.setOnClickListener { checkForUpdate() }
+        btnLanguage.setOnClickListener { showLanguageDialog() }
 
         // 点状态文字：通知不可用时直达系统通知设置
         tvStatus.setOnClickListener {
@@ -273,7 +280,7 @@ class MainActivity : Activity() {
                     getString(
                         R.string.rule_sub_fmt,
                         rule.intervalMinutes,
-                        MonitorService.formatDuration(remaining)
+                        MonitorService.formatDuration(this@MainActivity, remaining)
                     )
                 } else {
                     getString(R.string.rule_sub_disabled, rule.intervalMinutes)
@@ -306,7 +313,7 @@ class MainActivity : Activity() {
                             (rule.intervalMinutes * 60_000L - (snapElapsed[rule.id] ?: 0L))
                                 .coerceAtLeast(0L)
                         }
-                        getString(R.string.master_summary_fmt, enabled, MonitorService.formatDuration(nextMs))
+                        getString(R.string.master_summary_fmt, enabled, MonitorService.formatDuration(this@MainActivity, nextMs))
                     }
                 }
             }
@@ -651,6 +658,38 @@ class MainActivity : Activity() {
         }
     }
 
+    // ---------- 语言切换 ----------
+
+    /** 选项文案自带双语，无需随语言资源变化。 */
+    private fun showLanguageDialog() {
+        val options = arrayOf(
+            "跟随系统 / Follow system",
+            "中文 / Chinese",
+            "English"
+        )
+        val checked = when (LanguageUtils.selected(this)) {
+            LanguageUtils.LANG_ZH -> 1
+            LanguageUtils.LANG_EN -> 2
+            else -> 0
+        }
+        AlertDialog.Builder(this)
+            .setTitle("语言 / Language")
+            .setSingleChoiceItems(options, checked) { dialog, which ->
+                dialog.dismiss()
+                val value = when (which) {
+                    1 -> LanguageUtils.LANG_ZH
+                    2 -> LanguageUtils.LANG_EN
+                    else -> LanguageUtils.FOLLOW_SYSTEM
+                }
+                if (value != LanguageUtils.selected(this)) {
+                    LanguageUtils.select(this, value)
+                    recreate()
+                    Toast.makeText(this, R.string.language_changed, Toast.LENGTH_SHORT).show()
+                }
+            }
+            .show()
+    }
+
     private fun batteryManager(): PowerManager = getSystemService(PowerManager::class.java)
 
     // ---------- 在线更新（GitHub Releases） ----------
@@ -736,7 +775,7 @@ class MainActivity : Activity() {
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setDestinationInExternalPublicDir(
                 Environment.DIRECTORY_DOWNLOADS,
-                "AntiLazy-update.apk"
+                "Muse-update.apk"
             )
         downloadId = runCatching { dm.enqueue(request) }.getOrDefault(-1L)
         if (downloadId == -1L) {

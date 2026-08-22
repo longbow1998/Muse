@@ -58,7 +58,7 @@ object ForegroundProbe {
             context.getString(
                 R.string.context_app_fmt,
                 info.label,
-                MonitorService.formatDuration(info.todayMs)
+                MonitorService.formatDuration(context, info.todayMs)
             )
         } else {
             context.getString(R.string.context_app_only_fmt, info.label)

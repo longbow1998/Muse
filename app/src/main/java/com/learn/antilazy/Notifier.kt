@@ -21,8 +21,11 @@ object Notifier {
     private const val HEALTH_NOTIFICATION_ID = 2
     private const val REMINDER_NOTIFICATION_BASE = 1000
 
+    /** 通知文案跟随应用内语言设置；服务/广播传入的原始 Context 在此统一包装。 */
+    private fun localized(context: Context): Context = LanguageUtils.wrap(context)
+
     fun ensureChannels(context: Context) {
-        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        val manager = localized(context).getSystemService(NotificationManager::class.java) ?: return
         manager.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_ID_MONITOR,
@@ -70,18 +73,19 @@ object Notifier {
         OverlayReminder.canShow(context) || canPostReminders(context)
 
     fun fireReminder(context: Context, ruleId: Long, title: String, text: String): Boolean {
-        ensureChannels(context)
-        val overlayShown = OverlayReminder.show(context, title, text)
-        val notificationPosted = if (canPostReminders(context)) {
-            postReminderNotification(context, ruleId, title, text)
+        val ctx = localized(context)
+        ensureChannels(ctx)
+        val overlayShown = OverlayReminder.show(ctx, title, text)
+        val notificationPosted = if (canPostReminders(ctx)) {
+            postReminderNotification(ctx, ruleId, title, text)
         } else {
             false
         }
-        if (overlayShown && !notificationPosted) alertManually(context)
+        if (overlayShown && !notificationPosted) alertManually(ctx)
 
         val delivered = overlayShown || notificationPosted
         if (delivered) {
-            val prefs = ReminderEngine.prefs(context)
+            val prefs = ReminderEngine.prefs(ctx)
             prefs.edit()
                 .putInt(
                     RuleStore.KEY_REMIND_COUNT,
@@ -94,11 +98,12 @@ object Notifier {
     }
 
     fun showMonitorStoppedWarning(context: Context): Boolean {
-        ensureChannels(context)
-        val title = context.getString(R.string.health_title)
-        val text = context.getString(R.string.health_text)
-        val overlayShown = OverlayReminder.show(context, title, text)
-        val notificationPosted = postHealthNotification(context, title, text)
+        val ctx = localized(context)
+        ensureChannels(ctx)
+        val title = ctx.getString(R.string.health_title)
+        val text = ctx.getString(R.string.health_text)
+        val overlayShown = OverlayReminder.show(ctx, title, text)
+        val notificationPosted = postHealthNotification(ctx, title, text)
         if (overlayShown && !notificationPosted) alertManually(context)
         return overlayShown || notificationPosted
     }

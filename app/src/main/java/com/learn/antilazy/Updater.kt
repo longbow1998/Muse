@@ -10,7 +10,7 @@ object Updater {
 
     private const val TAG = "Updater"
     private const val OWNER = "longbow1998"
-    private const val REPO = "AntiLazy"
+    private const val REPO = "Muse"
     private const val API_URL = "https://api.github.com/repos/$OWNER/$REPO/releases/latest"
 
     /** 供浏览器兜底跳转的发布页。 */
@@ -67,7 +67,7 @@ object Updater {
             connectTimeout = 10_000
             readTimeout = 10_000
             instanceFollowRedirects = followRedirects
-            setRequestProperty("User-Agent", "AntiLazy-App")
+            setRequestProperty("User-Agent", "Muse-App")
             if (followRedirects) {
                 setRequestProperty("Accept", "application/vnd.github+json")
             }

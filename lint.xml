@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- 用户指定整幅插画作为启动图标（自带圆角），不做系统安全区内缩 -->
+    <issue id="IconLauncherShape" severity="ignore" />
+</lint>

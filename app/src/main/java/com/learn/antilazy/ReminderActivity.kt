@@ -1,6 +1,7 @@
 package com.learn.antilazy
 
 import android.app.Activity
+import android.content.Context
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -9,6 +10,10 @@ import android.widget.TextView
 
 /** Reminder detail opened when the user taps a reminder notification. */
 class ReminderActivity : Activity() {
+
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(LanguageUtils.wrap(newBase))
+    }
 
     companion object {
         const val EXTRA_TEXT = "extra_text"

@@ -43,6 +43,7 @@ object RuleStore {
     const val KEY_LAST_HEALTH_WARN_ELAPSED = "last_health_warn_elapsed"
     const val KEY_LAST_REMINDER_AT = "last_reminder_at"
     const val KEY_REMIND_COUNT = "remind_count"
+    const val KEY_APP_LANGUAGE = "app_language"
 
     private const val KEY_RULES = "rules_json"
     private const val KEY_PROGRESS = "progress_json"

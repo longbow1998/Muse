@@ -2,6 +2,7 @@ package com.learn.antilazy
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Context
 import android.content.Intent
 import android.graphics.Typeface
 import android.os.Bundle
@@ -37,6 +38,10 @@ class UsageStatsActivity : Activity() {
 
     private var modeIndex = 0
     private var loadSeq = 0
+
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(LanguageUtils.wrap(newBase))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -137,8 +142,8 @@ class UsageStatsActivity : Activity() {
                 summary = getString(
                     R.string.usage_range_summary_fmt,
                     days,
-                    MonitorService.formatDuration(total),
-                    MonitorService.formatDuration(avg),
+                    MonitorService.formatDuration(this, total),
+                    MonitorService.formatDuration(this, avg),
                     range.perAppTotalsMs.size
                 ),
                 chartValues = range.dailyTotalsMs,
@@ -163,13 +168,13 @@ class UsageStatsActivity : Activity() {
     )
 
     private fun buildDaySummary(totalMs: Long, appCount: Int, prevTotalsAsc: List<Long>): String {
-        val base = getString(R.string.usage_summary_fmt, MonitorService.formatDuration(totalMs), appCount)
+        val base = getString(R.string.usage_summary_fmt, MonitorService.formatDuration(this, totalMs), appCount)
         val prevTotal = prevTotalsAsc.sum()
         if (prevTotal <= 0L || prevTotalsAsc.isEmpty()) return base
         val diff = totalMs - prevTotal.toDouble() / prevTotalsAsc.size
         val compare = when {
-            diff <= -60_000 -> getString(R.string.usage_less_than_avg_fmt, MonitorService.formatDuration((-diff).toLong()))
-            diff >= 60_000 -> getString(R.string.usage_more_than_avg_fmt, MonitorService.formatDuration(diff.toLong()))
+            diff <= -60_000 -> getString(R.string.usage_less_than_avg_fmt, MonitorService.formatDuration(this, (-diff).toLong()))
+            diff >= 60_000 -> getString(R.string.usage_more_than_avg_fmt, MonitorService.formatDuration(this, diff.toLong()))
             else -> getString(R.string.usage_compare_flat)
         }
         return "$base\n$compare"
@@ -177,12 +182,12 @@ class UsageStatsActivity : Activity() {
 
     /** 近 N 天标签：每天显示星期几，最后一天固定“今天”。 */
     private fun shortLabels(count: Int): List<String> {
-        val weekdays = charArrayOf('一', '二', '三', '四', '五', '六', '日')
+        val weekdays = resources.getStringArray(R.array.weekdays_short)
         val today = LocalDate.now()
         return (count - 1 downTo 0).map { offset ->
             when {
-                offset == 0 -> "今天"
-                else -> weekdays[today.minusDays(offset.toLong()).dayOfWeek.value - 1].toString()
+                offset == 0 -> getString(R.string.today_label)
+                else -> weekdays[today.minusDays(offset.toLong()).dayOfWeek.value - 1]
             }
         }
     }
@@ -193,7 +198,7 @@ class UsageStatsActivity : Activity() {
         val fmt = DateTimeFormatter.ofPattern("M/d")
         return (count - 1 downTo 0).map { offset ->
             when {
-                offset == 0 -> "今天"
+                offset == 0 -> getString(R.string.today_label)
                 offset % 7 == 0 -> today.minusDays(offset.toLong()).format(fmt)
                 else -> ""
             }
@@ -245,7 +250,7 @@ class UsageStatsActivity : Activity() {
             ellipsize = TextUtils.TruncateAt.END
         }
         val tvTime = TextView(this).apply {
-            text = MonitorService.formatDuration(durationMs)
+            text = MonitorService.formatDuration(this@UsageStatsActivity, durationMs)
             textSize = 13f
             setTextColor(getColor(R.color.text_secondary))
             typeface = Typeface.DEFAULT_BOLD

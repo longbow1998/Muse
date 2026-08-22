@@ -1,72 +1,65 @@
-# AntiLazy 防沉迷提醒
+<div align="center">
 
-一款开源 Android 防沉迷应用：在**解锁使用手机**时按你配置的规则计时，到点弹出「跨应用悬浮提醒 + 通知 + 提示音 + 振动」，帮你从短视频和信息流里停下来。
+<img src="docs/assets/muse-icon.png" width="120" alt="Muse icon"/>
 
-> 默认提醒文案：**该停下来想一想了**
+# Muse 缪思
 
-- 锁屏或灭屏时计时自动暂停
-- 锁屏 ≤ 1 分钟：解锁后保留进度继续
-- 锁屏 > 1 分钟：进度清零，解锁后重新计数
-- 内置「今日使用统计」：今日/近7天/近30天趋势柱状图、各 App 占比条、与过去 7 天日均对比（数据仅在本机计算，不上传）
-- **耗电估算**：mAh 绝对值 + 占电池容量百分比双单位展示（按前台时长分摊的估算模型）
-- 提醒自动附带上下文：此刻在用哪个 App、今天已用多久（需使用情况访问权限，未授权时静默降级）
-- 「权限状态」自检面板：通知/悬浮窗/使用情况/电池优化逐项显示状态，点击直达设置
-- 应用内「检查更新」：自动拉取 GitHub Releases 最新版本，下载后唤起安装
+**Put the phone down. Start something worth doing.**
+**放下手机，开始做值得做的事情。**
 
-## 安装使用
+A tiny, open-source Android digital-wellbeing app: it quietly counts your unlocked screen time and — after a moment of scrolling — reminds you to pause, think, and get back to real life.
 
-**从 [Releases](https://github.com/longbow1998/AntiLazy/releases/latest) 下载最新的 `AntiLazy-vX.Y.Z-debug.apk` 直接安装即可**，无需自行构建。安装后在应用内点「检查更新」即可升级到新版本。
+一款开源 Android 防沉迷应用：解锁使用手机片刻后提醒你停下来想一想，放下手机、去做真正值得做的事。
 
-首次打开建议依次完成：
+[Download](https://github.com/longbow1998/Muse/releases/latest) · [中文说明](#功能) · [English](#features)
 
-1. 允许通知权限（Android 13+ 首次打开会自动弹窗）
-2. 在「权限状态」面板逐项开启：悬浮窗强提醒、使用情况访问、忽略电池优化
-3. 打开「开始 / 停止监控」开关，新增/修改你的提醒规则
-4. 「今日使用统计」内可设置电池容量，查看各 App 耗电估算
+</div>
 
-自行构建（可选）：
+---
+
+## 安装使用 / Install
+
+**从 [Releases](https://github.com/longbow1998/Muse/releases/latest) 下载最新的 `Muse-vX.Y.Z-debug.apk` 直接安装即可**；安装后在应用内点「检查更新」即可升级。
+
+Download the latest APK from [Releases](https://github.com/longbow1998/Muse/releases/latest) and install it. In-app "Check for updates" keeps you current afterwards.
+
+首次打开建议：① 允许通知权限 ② 在「权限状态」面板开启悬浮窗强提醒与使用情况访问 ③ 打开监控开关并配置规则。界面跟随系统语言（中/英），也可在应用内「Language」按钮手动切换。
+
+On first launch: allow notifications, grant the permissions listed in the in-app checklist (overlay + usage access recommended), then toggle monitoring on. The UI follows your system language (Chinese/English) and can be switched from the in-app "Language" button.
+
+## 功能 / Features
+
+### 中文
+
+- **多规则提醒**：自定义提醒文字与间隔（1–720 分钟），独立计时、行内开关
+- **强提醒链路**：跨应用悬浮层 + 高优先级通知 + 声音振动；任一通道成功即算送达，失败自动重试且不消耗本轮计时
+- **前台感知**：提醒自动附上「此刻在用哪个 App、今天已用多久」
+- **使用统计**：今日/近7天/近30天柱状图趋势、各 App 占比条、7 天日均对比
+- **耗电估算**：mAh 与「占电池容量百分比」双单位（本机估算）
+- **权限自检面板**：通知/悬浮窗/使用情况/电池优化逐项状态，点击直达设置
+- **在线更新**：应用内检查 GitHub Releases 并安装
+- 仅在解锁使用时计时：短锁屏暂停续计，锁屏 >1 分钟清零重计；服务被回收时暂停并告警，绝不伪造进度
+- 中英双语可切换；运行时零第三方依赖（Kotlin + 纯框架 API）
+
+### English
+
+- **Multiple rules**: custom text & interval per rule (1–720 min), independently timed
+- **Strong delivery**: overlay above any app + high-priority notification + sound/vibration; retry with no interval consumed until delivered
+- **Foreground awareness**: reminders append which app you're in and today's total
+- **Usage stats**: today/7d/30d bar-chart trends, per-app share bars, 7-day average comparison
+- **Battery estimate**: mAh + % of battery capacity (local estimation)
+- **Permission checklist**: live status with one-tap jumps to system settings
+- **In-app updates** via GitHub Releases
+- Counts only while unlocked; short locks pause, locks >1 min reset; never fabricates progress after service death
+- Chinese/English UI switchable; zero third-party runtime dependencies
+
+## 构建 / Build
 
 ```bash
-./gradlew assembleDebug
-
-## 特性
-
-- 仅在屏幕亮 + 已解锁时计时；短锁屏暂停后续计，长锁屏（>1 分钟）清零后续计
-- **多条提醒规则**：每条规则自定义提醒文本与触发间隔（1–720 分钟），独立计时；行内开关可临时停用
-- 提醒优先以 `TYPE_APPLICATION_OVERLAY` 悬浮层盖在任意应用上，同时发送高优先级通知；任一链路成功即算送达
-- 投递失败不消费本轮计时，自动重试
-- 进度、锁屏状态与系统 `BOOT_COUNT` 原子落盘，正确区分进程恢复与设备重启
-- 服务被系统回收时先尽力自愈（watchdog），无法恢复则明确告警，绝不伪造使用进度
-- 今日使用统计（UsageStatsManager），纯本机计算
-- 运行时零第三方依赖：Kotlin + 纯 Android 框架 API，minSdk 26 / targetSdk 34
-
-## 构建
-
-```bash
-./gradlew assembleDebug                              # 调试 APK
-./gradlew testDebugUnitTest lintDebug assembleDebug  # 完整验证（测试 + lint + 打包）
+./gradlew testDebugUnitTest lintDebug assembleDebug
 ```
 
-## 核心代码导读
-
-| 文件 | 职责 |
-|---|---|
-| `MonitorService.kt` | 前台服务：锁定判定、多规则秒级计时、投递重试 |
-| `TimerMath.kt` | 可单测的计时、锁屏边界与开机身份判断 |
-| `RuleStore.kt` | 规则与进度的 SharedPreferences(JSON) 持久化 |
-| `OverlayReminder.kt` | 跨应用悬浮提醒与多规则排队 |
-| `Notifier.kt` | 通知渠道、提醒通知、健康告警、声音振动 |
-| `TickReceiver.kt` | 服务健康 watchdog 与尽力恢复 |
-| `UsageStatsActivity.kt` | 今日各 App 使用时长统计页 |
-| `MainActivity.kt` | 监控开关、规则增删改、权限引导、实时状态 |
-
-## 注意事项（国产 ROM）
-
-小米/华为/OPPO 等系统会激进杀后台。请按 App 内「后台保活指南」逐步授权：
-悬浮窗、电池优化白名单、自启动、省电无限制、最近任务加锁。
-
-Android 无法在服务死亡后准确还原期间的锁屏历史，因此服务被回收时计时会暂停并发健康告警，
-不会把未知时间伪造为使用时长。重新打开 App 即可恢复。
+Requires JDK 17 + Android SDK (compileSdk 34). CI builds every push and attaches APKs to Releases automatically.
 
 ## License
 

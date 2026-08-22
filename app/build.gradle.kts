@@ -11,8 +11,8 @@ android {
         applicationId = "com.learn.antilazy"
         minSdk = 26
         targetSdk = 34
-        versionCode = 12
-        versionName = "1.7.1"
+        versionCode = 13
+        versionName = "1.8.0"
     }
 
     buildTypes {
@@ -30,10 +30,10 @@ android {
         jvmTarget = "17"
     }
 
-    // 统一产物命名：AntiLazy-v{版本}-{构建类型}.apk
+    // 统一产物命名：Muse-v{版本}-{构建类型}.apk
     applicationVariants.all {
         outputs.all {
-            val apkName = "AntiLazy-v$versionName-${buildType.name}.apk"
+            val apkName = "Muse-v$versionName-${buildType.name}.apk"
             (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl)
                 .outputFileName = apkName
         }

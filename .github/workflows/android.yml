@@ -30,12 +30,12 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AntiLazy-debug-apk
-          path: app/build/outputs/apk/debug/AntiLazy-*.apk
+          name: Muse-debug-apk
+          path: app/build/outputs/apk/debug/Muse-*.apk
 
       - name: Release on tag
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: app/build/outputs/apk/debug/AntiLazy-*.apk
+          files: app/build/outputs/apk/debug/Muse-*.apk
           generate_release_notes: true

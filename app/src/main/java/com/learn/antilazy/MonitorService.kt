@@ -168,15 +168,15 @@ class MonitorService : Service() {
             return "$ruleText\n\n$line"
         }
 
-        fun formatDuration(ms: Long): String {
+        fun formatDuration(context: Context, ms: Long): String {
             val totalSeconds = ms.coerceAtLeast(0L) / 1000
             val hours = totalSeconds / 3600
             val minutes = (totalSeconds % 3600) / 60
             val seconds = totalSeconds % 60
             return when {
-                hours > 0 -> "${hours}小时${minutes}分钟"
-                minutes > 0 -> "${minutes}分${seconds}秒"
-                else -> "${seconds}秒"
+                hours > 0 -> context.getString(R.string.duration_hm_fmt, hours, minutes)
+                minutes > 0 -> context.getString(R.string.duration_ms_fmt, minutes, seconds)
+                else -> context.getString(R.string.duration_s_fmt, seconds)
             }
         }
     }
@@ -265,6 +265,10 @@ class MonitorService : Service() {
             updateForegroundNotification()
             handler.postDelayed(this, TICK_MS)
         }
+    }
+
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(LanguageUtils.wrap(newBase))
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -462,6 +466,6 @@ class MonitorService : Service() {
         val nextMs = enabled.minOf {
             (it.rule.intervalMinutes * 60_000L - it.elapsedMs).coerceAtLeast(0L)
         }
-        return getString(R.string.fg_summary_fmt, enabled.size, formatDuration(nextMs))
+        return getString(R.string.fg_summary_fmt, enabled.size, formatDuration(this, nextMs))
     }
 }

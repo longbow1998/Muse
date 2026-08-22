@@ -38,7 +38,9 @@ class UsageBarChartView @JvmOverloads constructor(
         invalidate()
     }
 
-    private fun formatBarValue(ms: Long): String = MonitorService.formatDuration(ms)
+    private val appContext = context.applicationContext
+
+    private fun formatBarValue(ms: Long): String = MonitorService.formatDuration(appContext, ms)
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
