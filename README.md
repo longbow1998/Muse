@@ -27,9 +27,11 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 ## 特性
 
 - 仅在屏幕亮 + 已解锁时计时，锁屏/灭屏冻结累计值
-- 每 5 分钟提醒一次（IMPORTANCE_HIGH 渠道，带声音和自定义振动节奏），提醒后重新计数
+- **多条提醒规则**：每条规则可自定义提醒文本与触发间隔（1–720 分钟），独立计时、到点各自触发；行内开关可临时停用某条
+- 提醒通知（IMPORTANCE_HIGH 渠道，带声音和自定义振动节奏），触发后该规则重新计数
+- 计时进度落盘：进程被杀重启后 2 分钟内接着上次进度继续计，不悄悄归零
 - 重启手机后自动恢复监控（若之前处于开启状态）
-- 零第三方依赖：Kotlin + 纯 Android 框架 API，minSdk 26 (Android 8.0) / targetSdk 34
+- 零第三方依赖：Kotlin + 纯 Android 框架 API（含 org.json 序列化规则），minSdk 26 / targetSdk 34
 
 ## 构建
 
@@ -44,8 +46,9 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 
 | 文件 | 职责 |
 |---|---|
-| `app/src/main/java/com/learn/antilazy/MonitorService.kt` | 前台服务：锁定判定、秒级计时、发提醒 |
-| `app/src/main/java/com/learn/antilazy/MainActivity.kt` | 开关 UI、权限请求、实时状态 |
+| `app/src/main/java/com/learn/antilazy/MonitorService.kt` | 前台服务：锁定判定、多规则秒级计时、发提醒 |
+| `app/src/main/java/com/learn/antilazy/RuleStore.kt` | 规则数据模型 + SharedPreferences(JSON) 持久化 |
+| `app/src/main/java/com/learn/antilazy/MainActivity.kt` | 监控开关、规则列表增删改、权限请求、实时状态 |
 | `app/src/main/java/com/learn/antilazy/BootReceiver.kt` | 开机恢复监控 |
 | `docs/plans/2026-08-22-antilazy-design.md` | 设计决策记录 |
 

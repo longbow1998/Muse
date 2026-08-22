@@ -2,8 +2,10 @@ package com.learn.antilazy
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -12,7 +14,11 @@ import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.Settings
+import android.text.TextUtils
+import android.view.Gravity
 import android.widget.Button
+import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
@@ -25,12 +31,17 @@ class MainActivity : Activity() {
     companion object {
         /** 发起启动后的宽限期，期间不判定"服务没起来" */
         private const val START_GRACE_MS = 3000L
+
+        private const val MIN_MINUTES = 1
+        private const val MAX_MINUTES = 720
     }
 
     private lateinit var switchToggle: Switch
     private lateinit var tvStatus: TextView
     private lateinit var btnBattery: Button
     private lateinit var btnTest: Button
+    private lateinit var btnAddRule: Button
+    private lateinit var llRules: LinearLayout
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -38,10 +49,19 @@ class MainActivity : Activity() {
     private var desiredRunning = false
     private var lastStartRequestAt = 0L
 
+    /** 规则列表的本地事实源（编辑后立即回显，不依赖服务是否运行） */
+    private var uiRules: List<Rule> = emptyList()
+    private var rowsSignature = ""
+    private var snapElapsed: Map<Long, Long> = emptyMap()
+
+    private class RowH(val id: Long, val tvSub: TextView)
+
+    private val rowViews = mutableListOf<RowH>()
+
     private val statusUpdater = object : Runnable {
         override fun run() {
+            refreshFromService()
             renderStatusText()
-            reconcileService()
             handler.postDelayed(this, 1000)
         }
     }
@@ -54,6 +74,8 @@ class MainActivity : Activity() {
         tvStatus = findViewById(R.id.tv_status)
         btnBattery = findViewById(R.id.btn_battery)
         btnTest = findViewById(R.id.btn_test)
+        btnAddRule = findViewById(R.id.btn_add_rule)
+        llRules = findViewById(R.id.ll_rules)
 
         switchToggle.setOnCheckedChangeListener { _, checked ->
             // 去抖：程序化设置 isChecked 或重复点击同一状态时不重复启停
@@ -74,6 +96,11 @@ class MainActivity : Activity() {
                 Toast.makeText(this, R.string.test_hint_toast, Toast.LENGTH_SHORT).show()
             }
         }
+
+        btnAddRule.setOnClickListener { openEditor(existing = null) }
+
+        uiRules = RuleStore.load(this)
+        rebuildRows()
     }
 
     override fun onResume() {
@@ -90,19 +117,140 @@ class MainActivity : Activity() {
         super.onPause()
     }
 
-    /** 状态文本实时刷新；绝不回写开关控件，避免和用户点击竞争 */
+    /** 拉取服务的实时快照（各规则已计时长），必要时同步规则结构 */
+    private fun refreshFromService() {
+        snapElapsed = if (MonitorService.isRunning) {
+            MonitorService.snapshot().associate { it.id to it.elapsedMs }
+        } else {
+            emptyMap()
+        }
+        syncRowsIfNeeded()
+    }
+
+    // ---------- 规则列表 ----------
+
+    private fun applyRules(newRules: List<Rule>) {
+        uiRules = newRules
+        MonitorService.setRules(this, newRules)
+        rowsSignature = ""
+        syncRowsIfNeeded()
+    }
+
+    private fun toggleRule(id: Long, enabled: Boolean) {
+        applyRules(uiRules.map { if (it.id == id) it.copy(enabled = enabled) else it })
+    }
+
+    private fun deleteRule(id: Long) {
+        applyRules(uiRules.filter { it.id != id })
+        Toast.makeText(this, R.string.toast_rule_deleted, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
+    /** 结构（内容/间隔/启用/增删）变化才重建行；倒计时数字走轻量文本更新 */
+    private fun syncRowsIfNeeded() {
+        val sig = uiRules.joinToString("|") { "${it.id},${it.enabled},${it.intervalMinutes},${it.text}" }
+        if (sig == rowsSignature) return
+        rowsSignature = sig
+        rebuildRows()
+    }
+
+    private fun rebuildRows() {
+        llRules.removeAllViews()
+        rowViews.clear()
+        uiRules.forEach { rule ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, dp(12), 0, dp(12))
+            }
+
+            val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            val tvMain = TextView(this).apply {
+                text = rule.text
+                textSize = 15f
+                setTextColor(getColor(R.color.text_primary))
+                maxLines = 2
+                ellipsize = TextUtils.TruncateAt.END
+            }
+            val tvSub = TextView(this).apply {
+                textSize = 12f
+                setTextColor(getColor(R.color.text_secondary))
+            }
+            col.addView(tvMain)
+            col.addView(tvSub)
+
+            val sw = Switch(this).apply {
+                isChecked = rule.enabled
+                setOnCheckedChangeListener { _, checked -> toggleRule(rule.id, checked) }
+            }
+
+            row.addView(
+                col,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    1f
+                )
+            )
+            row.addView(sw)
+
+            row.setOnClickListener { openEditor(uiRules.firstOrNull { it.id == rule.id }) }
+
+            llRules.addView(row)
+            rowViews.add(RowH(rule.id, tvSub))
+        }
+        updateCountdownTexts()
+        if (uiRules.isEmpty()) {
+            val empty = TextView(this).apply {
+                text = getString(R.string.no_enabled_rules)
+                textSize = 13f
+                setTextColor(getColor(R.color.text_secondary))
+                setPadding(0, dp(8), 0, dp(8))
+            }
+            llRules.addView(empty)
+        }
+    }
+
+    private fun updateCountdownTexts() {
+        uiRules.forEach { rule ->
+            val tvSub = rowViews.firstOrNull { it.id == rule.id }?.tvSub ?: return@forEach
+            tvSub.text =
+                if (rule.enabled) {
+                    val remaining = (rule.intervalMinutes * 60_000L - (snapElapsed[rule.id] ?: 0L))
+                        .coerceAtLeast(0L)
+                    getString(
+                        R.string.rule_sub_fmt,
+                        rule.intervalMinutes,
+                        MonitorService.formatDuration(remaining)
+                    )
+                } else {
+                    getString(R.string.rule_sub_disabled, rule.intervalMinutes)
+                }
+        }
+    }
+
     private fun renderStatusText() {
+        updateCountdownTexts()
+
         val sb = StringBuilder()
 
         sb.append(
             when {
                 !MonitorService.isRunning -> getString(R.string.status_stopped)
                 !MonitorService.isUnlocked -> getString(R.string.status_locked_paused)
-                else -> getString(
-                    R.string.status_running_fmt,
-                    MonitorService.formatDuration(MonitorService.activeMs),
-                    MonitorService.formatDuration(MonitorService.INTERVAL_MS - MonitorService.activeMs)
-                )
+                else -> {
+                    val enabled = uiRules.count { it.enabled }
+                    if (enabled == 0) {
+                        getString(R.string.no_enabled_rules)
+                    } else {
+                        val nextMs = uiRules.filter { it.enabled }.minOf { rule ->
+                            (rule.intervalMinutes * 60_000L - (snapElapsed[rule.id] ?: 0L))
+                                .coerceAtLeast(0L)
+                        }
+                        getString(R.string.master_summary_fmt, enabled, MonitorService.formatDuration(nextMs))
+                    }
+                }
             }
         )
 
@@ -127,6 +275,99 @@ class MainActivity : Activity() {
 
         tvStatus.text = sb.toString()
     }
+
+    // ---------- 编辑对话框 ----------
+
+    private fun openEditor(existing: Rule?) {
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(16), dp(24), 0)
+        }
+
+        fun label(textRes: Int): TextView = TextView(this).apply {
+            text = getString(textRes)
+            textSize = 13f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(getColor(R.color.text_secondary))
+        }
+
+        val etText = EditText(this).apply {
+            hint = getString(R.string.editor_hint_text)
+            setText(existing?.text ?: "")
+            minLines = 2
+            gravity = Gravity.TOP
+        }
+        val etMinutes = EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setText(existing?.intervalMinutes?.toString() ?: RuleStore.DEFAULT_INTERVAL_MINUTES.toString())
+        }
+
+        container.addView(label(R.string.editor_label_text))
+        container.addView(etText)
+        container.addView(label(R.string.editor_label_minutes).apply { setPadding(0, dp(16), 0, 0) })
+        container.addView(etMinutes)
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(getString(if (existing == null) R.string.editor_title_new else R.string.editor_title_edit))
+            .setView(container)
+            .create()
+
+        dialog.show()
+
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.visibility = Button.GONE
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.visibility = Button.GONE
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.visibility = Button.GONE
+
+        val btnSave = Button(this).apply { setText(R.string.editor_save) }
+        val btnDelete = Button(this).apply {
+            setText(R.string.editor_delete)
+            visibility = if (existing == null) Button.GONE else Button.VISIBLE
+        }
+        val btnCancel = Button(this).apply {
+            setText(R.string.editor_cancel)
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        }
+
+        val btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+        }
+        btnRow.addView(btnCancel)
+        btnRow.addView(btnDelete)
+        btnRow.addView(btnSave)
+        container.addView(btnRow)
+
+        btnCancel.setOnClickListener { dialog.dismiss() }
+        btnDelete.setOnClickListener {
+            existing?.let { deleteRule(it.id) }
+            dialog.dismiss()
+        }
+        btnSave.setOnClickListener {
+            val text = etText.text.toString().trim()
+            val minutes = etMinutes.text.toString().toIntOrNull()
+            when {
+                text.isEmpty() ->
+                    Toast.makeText(this, R.string.toast_need_text, Toast.LENGTH_SHORT).show()
+                minutes == null || minutes < MIN_MINUTES || minutes > MAX_MINUTES ->
+                    Toast.makeText(this, R.string.toast_bad_minutes, Toast.LENGTH_SHORT).show()
+                else -> {
+                    val newRule = Rule(
+                        id = existing?.id ?: RuleStore.nextId(uiRules),
+                        intervalMinutes = minutes,
+                        text = text,
+                        enabled = existing?.enabled ?: true
+                    )
+                    applyRules(
+                        if (existing == null) uiRules + newRule
+                        else uiRules.map { if (it.id == existing.id) newRule else it }
+                    )
+                    dialog.dismiss()
+                }
+            }
+        }
+    }
+
+    // ---------- 监控开关与权限 ----------
 
     /**
      * 自愈：用户要开、但服务没起来（启动竞态或被系统杀），
