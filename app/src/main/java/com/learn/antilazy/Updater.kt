@@ -52,7 +52,7 @@ object Updater {
             Release(
                 tagName = tag,
                 notes = "",
-                apkUrl = "https://github.com/$OWNER/$REPO/releases/download/$tag/AntiLazy-$tag-debug.apk"
+                apkUrl = "https://github.com/$OWNER/$REPO/releases/download/$tag/Muse-$tag-release.apk"
             )
         } catch (e: Exception) {
             Log.w(TAG, "web redirect channel failed", e)

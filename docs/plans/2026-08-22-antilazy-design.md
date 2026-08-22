@@ -271,3 +271,13 @@ README 安装章节改为以 GitHub Releases 为唯一分发入口（应用内�
 3. 产物与更新通道更名：APK 命名 Muse-v{ver}-{type}.apk，
    Updater 指向 longbow1998/Muse，网页兜底直链同步。
    包名保持 com.learn.antilazy 以支持老用户覆盖升级。
+
+### 2026-08-22 修复签名冲突：固定发布签名（v1.8.1）
+
+问题：CI runner 每次构建生成全新 debug 签名，导致各版本 Release APK 签名互不相同，
+覆盖安装报「已安装了签名冲突的应用」。
+
+修复：生成专用签名密钥 muse.keystore 随仓库分发（个人开源侧载项目的通行做法，
+等效公开可验证身份），本地与 CI 的 release 构建统一使用；CI 改为发布
+assembleRelease 产物（Muse-v{ver}-release.apk）。早期临时签名版本需卸载重装一次，
+此后所有版本可无缝覆盖升级与应用内更新。

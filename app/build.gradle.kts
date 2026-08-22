@@ -11,13 +11,25 @@ android {
         applicationId = "com.learn.antilazy"
         minSdk = 26
         targetSdk = 34
-        versionCode = 13
-        versionName = "1.8.0"
+        versionCode = 14
+        versionName = "1.8.1"
+    }
+
+    // 固定签名：本地与 CI 产物同签名，覆盖安装不再冲突。
+    // 个人开源侧载项目，签名密钥随仓库分发（等效于公开可验证身份）。
+    signingConfigs {
+        create("release") {
+            storeFile = rootProject.file("muse.keystore")
+            storePassword = "muse2026"
+            keyAlias = "muse"
+            keyPassword = "muse2026"
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 

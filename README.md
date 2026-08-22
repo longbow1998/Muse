@@ -19,7 +19,7 @@ A tiny, open-source Android digital-wellbeing app: it quietly counts your unlock
 
 ## 安装使用 / Install
 
-**从 [Releases](https://github.com/longbow1998/Muse/releases/latest) 下载最新的 `Muse-vX.Y.Z-debug.apk` 直接安装即可**；安装后在应用内点「检查更新」即可升级。
+**从 [Releases](https://github.com/longbow1998/Muse/releases/latest) 下载最新的 `Muse-vX.Y.Z-release.apk` 直接安装即可**；安装后在应用内点「检查更新」即可升级。所有 Release 使用同一固定签名，可放心覆盖安装（早期 v1.8.0 及之前的临时签名版本需先卸载一次）。
 
 Download the latest APK from [Releases](https://github.com/longbow1998/Muse/releases/latest) and install it. In-app "Check for updates" keeps you current afterwards.
 
