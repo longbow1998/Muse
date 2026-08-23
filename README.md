@@ -53,6 +53,45 @@ On first launch: allow notifications, grant the permissions listed in the in-app
 - Counts only while unlocked; short locks pause, locks >1 min reset; never fabricates progress after service death
 - Chinese/English UI switchable; Material 3 design with automatic dark mode; only official Google libraries, no other third-party deps
 
+## 提醒逻辑 / How reminders work
+
+### 中文
+
+**计时条件**
+
+- 仅在「屏幕亮 + 已解锁」时计时；锁屏、灭屏、亮屏但停留在锁屏界面均暂停
+- 多条规则独立计时，互不影响
+
+**锁屏规则**
+
+- 锁屏 ≤ 1 分钟：暂停，解锁后保留进度继续
+- 锁屏 > 1 分钟：进度清零，解锁后从零开始
+- 系统时间调整、设备重启：通过 `BOOT_COUNT` + 单调时钟识别，不误算进度
+
+**提醒触发与送达**
+
+- 任一启用规则的累计时长达到其设定间隔 → 触发提醒
+- 触发后同时尝试两条通道：
+  1. **跨应用悬浮层**（`TYPE_APPLICATION_OVERLAY`）：盖在抖音等任意应用上，20 秒自动消失或手动关闭
+  2. **高优先级通知**（IMPORTANCE_HIGH + 声音/振动）
+- **任一通道成功即算送达**，该规则归零重新计时
+- 两通道都失败（如权限被关）：本轮计时不消费，每 30 秒重试直至成功——不会白等一轮
+- 提醒正文自动附带「此刻在用哪个 App · 今天已用多久」（需使用情况访问权限）
+
+**服务可靠性**
+
+- 前台服务是唯一计时权威；被系统回收时 watchdog 每 30 秒检测并尽力恢复
+- 无法恢复时明确告警提示，**绝不伪造服务死亡期间的计时进度**
+- 用户主动停止 / 系统「强制停止」：尊重用户意图，闹钟链终止，重启手机后按上次状态恢复
+
+### English
+
+**Counting**: only while screen-on & keyguard-unlocked; per-rule independent timers.
+**Locks**: ≤1 min pause-and-resume; >1 min resets progress. Clock changes/reboots handled via monotonic clock + `BOOT_COUNT`.
+**Delivery**: rule reaches its interval → overlay above any app + high-priority notification, sound/vibration. Either channel counts as delivered and the rule restarts. If both fail, the due interval is retained and retried every 30 s — never silently consumed.
+**Context**: reminders append which app you're in and today's total for it (with usage access).
+**Reliability**: foreground service is the sole timing authority; a watchdog attempts recovery when the system reclaims it and alerts honestly instead of fabricating progress. User-initiated stops are respected.
+
 ## 构建 / Build
 
 ```bash
