@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">缪思</string>
 
-    <string name="subtitle">仅在手机解锁使用时计时，锁屏/灭屏暂停；锁屏超过 1 分钟自动重新计数。</string>
+    <string name="subtitle">仅在符合条件的解锁使用中计时；锁屏、灭屏或使用免打扰应用时暂停。</string>
 
     <string name="toggle_label">开始 / 停止监控</string>
 <string name="menu_more">更多选项</string>
@@ -13,6 +13,8 @@
     <string name="status_stopped">已停止。打开上方开关开始监控。</string>
     <string name="status_service_dead">监控开启中 · 服务被系统回收，正在尝试恢复（恢复前计时暂停）</string>
     <string name="status_locked_paused">锁屏中，计时已暂停 ⏸</string>
+    <string name="status_whitelist_paused">免打扰应用中，计时已暂停</string>
+    <string name="status_foreground_unknown">前台应用识别异常，计时已暂停</string>
     <string name="no_enabled_rules">没有启用中的规则，请新增或开启</string>
 
     <string name="rules_section_title">我的提醒规则</string>
@@ -43,6 +45,19 @@
     <string name="test_button_action">测试提醒</string>
     <string name="usage_button">使用统计</string>
 
+    <string name="whitelist_entry_title">免打扰应用</string>
+    <string name="whitelist_entry_none">尚未选择应用</string>
+    <string name="whitelist_entry_count_fmt">已选择 %1$d 个应用</string>
+    <string name="whitelist_title">免打扰应用</string>
+    <string name="whitelist_back">返回</string>
+    <string name="whitelist_description">所选应用位于前台时暂停提醒计时，也不会有提醒遮挡屏幕；连续超过 1 分钟后清零已有进度。使用统计仍会如实记录。</string>
+    <string name="whitelist_search_hint">搜索应用名称或包名</string>
+    <string name="whitelist_selected_count_fmt">已选择：%1$d 个</string>
+    <string name="whitelist_loading">正在读取应用…</string>
+    <string name="whitelist_empty">没有找到匹配的应用</string>
+    <string name="whitelist_usage_required">需要「使用情况访问」才能识别当前前台应用，白名单目前不会生效。点击此处去授权。</string>
+    <string name="whitelist_inactive_warning">已选择免打扰应用，但「使用情况访问」未开启，白名单无法生效。</string>
+
     <string name="usage_title">使用统计</string>
     <string name="usage_tab_today">今日</string>
     <string name="usage_tab_7d">近 7 天</string>
@@ -61,7 +76,7 @@
     <string name="perms_section_title">权限状态</string>
     <string name="perm_notification">通知权限（到点提醒的显示通道）</string>
     <string name="perm_overlay">显示在其他应用上层（强提醒）</string>
-    <string name="perm_usage">使用情况访问（应用统计与前台感知）</string>
+    <string name="perm_usage">使用情况访问（应用统计、前台感知与白名单）</string>
     <string name="perm_battery">忽略电池优化（降低被杀概率，建议）</string>
     <string name="perm_status_on">已开启 ✓</string>
     <string name="perm_status_off">未开启</string>

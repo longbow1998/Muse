@@ -37,8 +37,10 @@ object RuleStore {
     const val KEY_USER_STOPPED = "user_stopped"
     const val KEY_CHECKPOINT_ELAPSED = "checkpoint_elapsed"
     const val KEY_BOOT_COUNT = "boot_count"
-    const val KEY_WAS_UNLOCKED = "was_unlocked"
-    const val KEY_LOCKED_AT_ELAPSED = "locked_at_elapsed"
+    // Keep legacy storage names so existing installs retain their timer checkpoint.
+    const val KEY_WAS_TIMING_ACTIVE = "was_unlocked"
+    const val KEY_PAUSED_AT_ELAPSED = "locked_at_elapsed"
+    const val KEY_PAUSE_INCLUDES_WHITELIST = "pause_includes_whitelist"
     const val KEY_LAST_ENABLE_WALL = "last_enable_wall"
     const val KEY_LAST_HEALTH_WARN_ELAPSED = "last_health_warn_elapsed"
     const val KEY_LAST_REMINDER_AT = "last_reminder_at"
@@ -121,16 +123,18 @@ object RuleStore {
         progress: Map<Long, Long>,
         checkpointElapsed: Long,
         bootCount: Int,
-        wasUnlocked: Boolean,
-        lockedAtElapsed: Long,
+        wasTimingActive: Boolean,
+        pausedAtElapsed: Long,
+        pauseIncludesWhitelist: Boolean,
         sync: Boolean
     ): Boolean {
         val editor = prefs.edit()
             .putString(KEY_PROGRESS, encodeProgress(progress))
             .putLong(KEY_CHECKPOINT_ELAPSED, checkpointElapsed)
             .putInt(KEY_BOOT_COUNT, bootCount)
-            .putBoolean(KEY_WAS_UNLOCKED, wasUnlocked)
-            .putLong(KEY_LOCKED_AT_ELAPSED, lockedAtElapsed)
+            .putBoolean(KEY_WAS_TIMING_ACTIVE, wasTimingActive)
+            .putLong(KEY_PAUSED_AT_ELAPSED, pausedAtElapsed)
+            .putBoolean(KEY_PAUSE_INCLUDES_WHITELIST, pauseIncludesWhitelist)
         return if (sync) editor.commit() else {
             editor.apply()
             true
@@ -148,8 +152,9 @@ object RuleStore {
             progress = emptyMap(),
             checkpointElapsed = nowElapsed,
             bootCount = bootCount,
-            wasUnlocked = false,
-            lockedAtElapsed = nowElapsed,
+            wasTimingActive = false,
+            pausedAtElapsed = nowElapsed,
+            pauseIncludesWhitelist = false,
             sync = sync
         )
 

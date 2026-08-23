@@ -8,9 +8,12 @@ import android.content.Context
 import android.content.Intent
 import android.media.RingtoneManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import java.util.concurrent.atomic.AtomicLong
 
 /** Notification and overlay delivery. A reminder succeeds only when at least one is available. */
 object Notifier {
@@ -20,6 +23,7 @@ object Notifier {
     private const val CHANNEL_ID_HEALTH = "monitor_health"
     private const val HEALTH_NOTIFICATION_ID = 2
     private const val REMINDER_NOTIFICATION_BASE = 1000
+    private val interruptionGeneration = AtomicLong()
 
     /** 通知文案跟随应用内语言设置；服务/广播传入的原始 Context 在此统一包装。 */
     private fun localized(context: Context): Context = LanguageUtils.wrap(context)
@@ -98,6 +102,16 @@ object Notifier {
     }
 
     fun showMonitorStoppedWarning(context: Context): Boolean {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            val generation = interruptionGeneration.get()
+            val deliverable = OverlayReminder.canShow(context) || canPostHealth(context)
+            Handler(Looper.getMainLooper()).post {
+                if (generation == interruptionGeneration.get()) {
+                    showMonitorStoppedWarning(context)
+                }
+            }
+            return deliverable
+        }
         val ctx = localized(context)
         ensureChannels(ctx)
         val title = ctx.getString(R.string.health_title)
@@ -109,7 +123,29 @@ object Notifier {
     }
 
     fun dismissMonitorStoppedWarning(context: Context) {
+        interruptionGeneration.incrementAndGet()
         context.getSystemService(NotificationManager::class.java)?.cancel(HEALTH_NOTIFICATION_ID)
+    }
+
+    /** Remove every interruptive Muse surface while keeping the low-priority monitor status. */
+    fun dismissInterruptions(context: Context) {
+        interruptionGeneration.incrementAndGet()
+        OverlayReminder.dismissAll()
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        manager.cancel(HEALTH_NOTIFICATION_ID)
+        runCatching {
+            manager.activeNotifications
+                .filter { it.notification.channelId == CHANNEL_ID_REMINDER }
+                .forEach { manager.cancel(it.id) }
+        }
+    }
+
+    private fun canPostHealth(context: Context): Boolean {
+        ensureChannels(context)
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return false
+        val channel = manager.getNotificationChannel(CHANNEL_ID_HEALTH)
+        return manager.areNotificationsEnabled() &&
+            channel != null && channel.importance != NotificationManager.IMPORTANCE_NONE
     }
 
     private fun postReminderNotification(

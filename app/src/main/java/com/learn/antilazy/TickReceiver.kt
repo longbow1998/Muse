@@ -6,20 +6,38 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
+import java.util.concurrent.Executors
 
 /** Watchdog alarm: attempts service recovery but never fabricates active-use progress. */
 class TickReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (MonitorService.applyUserRequestedStopIfNeeded(context)) return
-        if (ReminderEngine.onAlarm(context)) {
-            scheduleNext(context)
+        if (MonitorService.wasRunningBefore(context)) {
+            runCatching { scheduleNext(context) }
+        }
+        val pendingResult = goAsync()
+        runCatching {
+            executor.execute {
+                try {
+                    val userStopped = runCatching {
+                        MonitorService.applyUserRequestedStopIfNeeded(context)
+                    }.getOrDefault(false)
+                    if (!userStopped) {
+                        runCatching { ReminderEngine.onAlarm(context) }
+                    }
+                } finally {
+                    pendingResult.finish()
+                }
+            }
+        }.onFailure {
+            pendingResult.finish()
         }
     }
 
     companion object {
         private const val REQUEST_CODE = 1001
         private const val INTERVAL_MS = 30_000L
+        private val executor = Executors.newSingleThreadExecutor()
 
         /** Non-wakeup alarm: enough for health checks without waking a locked device. */
         fun scheduleNext(context: Context) {

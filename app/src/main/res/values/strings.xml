@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">Muse</string>
 
-    <string name="subtitle">Counts only while your phone is unlocked and in use; pauses on lock/screen-off, and restarts after locks longer than 1 minute.</string>
+    <string name="subtitle">Counts only during eligible unlocked use; pauses on lock/screen-off and in your Do Not Disturb apps.</string>
 
     <string name="toggle_label">Start / stop monitoring</string>
         <string name="chevron_right" translatable="false">›</string>
@@ -14,6 +14,8 @@
     <string name="status_stopped">Stopped. Toggle the switch above to begin.</string>
     <string name="status_service_dead">Monitoring on · service was reclaimed by the system, recovering…(timing paused until then)</string>
     <string name="status_locked_paused">Locked · timing paused ⏸</string>
+    <string name="status_whitelist_paused">Do Not Disturb app · timing paused</string>
+    <string name="status_foreground_unknown">Foreground detection unavailable · timing paused</string>
     <string name="no_enabled_rules">No enabled rules — add one or enable an existing rule</string>
 
     <string name="rules_section_title">My reminder rules</string>
@@ -44,6 +46,19 @@
     <string name="test_button_action">Test reminder</string>
     <string name="usage_button">Usage statistics</string>
 
+    <string name="whitelist_entry_title">Do Not Disturb apps</string>
+    <string name="whitelist_entry_none">No apps selected</string>
+    <string name="whitelist_entry_count_fmt">Selected apps: %1$d</string>
+    <string name="whitelist_title">Do Not Disturb apps</string>
+    <string name="whitelist_back">Back</string>
+    <string name="whitelist_description">While a selected app is in the foreground, reminder timing pauses and no reminder covers the screen. After more than 1 minute, existing progress resets. Usage statistics are still recorded.</string>
+    <string name="whitelist_search_hint">Search by app name or package</string>
+    <string name="whitelist_selected_count_fmt">Selected: %1$d</string>
+    <string name="whitelist_loading">Loading apps…</string>
+    <string name="whitelist_empty">No matching apps</string>
+    <string name="whitelist_usage_required">Usage access is required to identify the foreground app. The whitelist is currently inactive. Tap here to grant access.</string>
+    <string name="whitelist_inactive_warning">Do Not Disturb apps are selected, but Usage access is off; the whitelist cannot take effect.</string>
+
     <string name="usage_title">Usage statistics</string>
     <string name="usage_tab_today">Today</string>
     <string name="usage_tab_7d">Last 7 days</string>
@@ -62,7 +77,7 @@
     <string name="perms_section_title">Permissions</string>
     <string name="perm_notification">Notifications (how reminders reach you)</string>
     <string name="perm_overlay">Display over other apps (strong reminders)</string>
-    <string name="perm_usage">Usage access (statistics &amp; foreground awareness)</string>
+    <string name="perm_usage">Usage access (statistics, foreground awareness &amp; app whitelist)</string>
     <string name="perm_battery">Ignore battery optimizations (recommended)</string>
     <string name="perm_status_on">On ✓</string>
     <string name="perm_status_off">Off</string>

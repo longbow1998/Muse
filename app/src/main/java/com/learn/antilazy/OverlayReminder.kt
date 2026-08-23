@@ -85,6 +85,10 @@ object OverlayReminder {
     }
 
     fun dismissAll() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            handler.post { dismissAll() }
+            return
+        }
         pendingMessages.clear()
         handler.removeCallbacks(autoDismiss)
         val view = currentView

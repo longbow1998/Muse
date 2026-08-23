@@ -29,8 +29,12 @@ object TimerMath {
     fun shouldResetAfterLock(lockDurationMs: Long): Boolean =
         lockDurationMs > LOCK_RESET_MS
 
-    fun elapsedAfterUnlock(elapsedMs: Long, lockDurationMs: Long): Long =
-        if (shouldResetAfterLock(lockDurationMs)) 0L else elapsedMs.coerceAtLeast(0L)
+    fun elapsedAfterPause(elapsedMs: Long, pauseDurationMs: Long): Long =
+        if (shouldResetAfterLock(pauseDurationMs)) 0L else elapsedMs.coerceAtLeast(0L)
+
+    /** Lock and whitelist transitions share one uninterrupted pause start. */
+    fun pauseStartedAt(currentPausedAtMs: Long, transitionAtMs: Long): Long =
+        if (currentPausedAtMs in 1..transitionAtMs) currentPausedAtMs else transitionAtMs
 
     fun isUncertainGap(gapMs: Long): Boolean = gapMs > LOCK_RESET_MS
 

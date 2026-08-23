@@ -11,6 +11,7 @@ import android.provider.Settings
 object ReminderEngine {
 
     private const val HEALTH_WARNING_INTERVAL_MS = 5 * 60_000L
+    private val watchdogForegroundTracker = ForegroundAppTracker()
 
     fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(RuleStore.PREFS_NAME, Context.MODE_PRIVATE)
@@ -42,9 +43,19 @@ object ReminderEngine {
         val restartRequested = MonitorService.restartIfExpected(context)
         if (restartRequested && lastCheckpointAgeMs(context) <= TimerMath.LOCK_RESET_MS) return true
 
+        val whitelistPackages = WhitelistStore.load(context)
+        val foreground = if (whitelistPackages.isEmpty()) {
+            null
+        } else {
+            watchdogForegroundTracker.observe(context)
+        }
+        val whitelistPaused = foreground?.reliable == true &&
+            foreground.hasUsageAccess && foreground.packageName in whitelistPackages
+        if (whitelistPaused) Notifier.dismissInterruptions(context)
+
         val now = SystemClock.elapsedRealtime()
         val lastWarning = prefs.getLong(RuleStore.KEY_LAST_HEALTH_WARN_ELAPSED, 0L)
-        if (isUnlockedNow(context) &&
+        if (isUnlockedNow(context) && !whitelistPaused &&
             (lastWarning <= 0L || lastWarning > now || now - lastWarning >= HEALTH_WARNING_INTERVAL_MS)
         ) {
             if (Notifier.showMonitorStoppedWarning(context)) {

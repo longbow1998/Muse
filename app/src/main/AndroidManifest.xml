@@ -57,6 +57,11 @@
             android:exported="false"
             android:label="@string/usage_title" />
 
+        <activity
+            android:name=".WhitelistActivity"
+            android:exported="false"
+            android:label="@string/whitelist_title" />
+
         <service
             android:name=".MonitorService"
             android:exported="false"

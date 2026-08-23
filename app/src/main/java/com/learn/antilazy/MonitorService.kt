@@ -18,6 +18,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import java.util.concurrent.Executors
 
 /** Sole authority for active-use timing. Alarm fallback is intentionally watchdog-only. */
 @SuppressLint("ApplySharedPref") // User intent and lock transitions must survive immediate death.
@@ -33,6 +34,8 @@ class MonitorService : Service() {
         private const val TAG = "MonitorService"
         private const val TICK_MS = 1000L
         private const val DELIVERY_RETRY_MS = 30_000L
+        private const val FOREGROUND_QUERY_TIMEOUT_MS = 5_000L
+        private const val MAX_DELIVERY_OBSERVATION_AGE_MS = 250L
         private const val NOTIFICATION_ID_MONITOR = 1
 
         @Volatile
@@ -41,6 +44,14 @@ class MonitorService : Service() {
 
         @Volatile
         var isUnlocked = false
+            private set
+
+        @Volatile
+        var isWhitelistPaused = false
+            private set
+
+        @Volatile
+        var isForegroundUnknown = false
             private set
 
         @Volatile
@@ -148,6 +159,11 @@ class MonitorService : Service() {
             instance?.replaceRules(rules)
         }
 
+        fun setWhitelistedPackages(context: Context, packages: Set<String>) {
+            WhitelistStore.save(context, packages)
+            instance?.replaceWhitelist(WhitelistStore.load(context))
+        }
+
         fun sendTestReminder(context: Context): Boolean {
             if (!wasRunningBefore(context)) return false
             val rule = RuleStore.load(context).firstOrNull { it.enabled }
@@ -188,9 +204,19 @@ class MonitorService : Service() {
     private var initialized = false
     private var ticking = false
     private var lastTickElapsed = 0L
-    private var lockedAtElapsed = 0L
+    private var pausedAtElapsed = 0L
+    private var pauseIncludesWhitelist = false
+    private var timingActive = false
+    private var activeNotBeforeElapsed = 0L
     private var currentBootCount = -1
     private var lastBatterySampleAt = 0L
+    private var whitelistPackages: Set<String> = emptySet()
+    private val foregroundTracker = ForegroundAppTracker()
+    private val foregroundExecutor = Executors.newSingleThreadExecutor()
+    private var lastForegroundObservation: ForegroundAppTracker.Observation? = null
+    private var foregroundGeneration = 0L
+    private var foregroundQueryInFlight = false
+    private var foregroundQueryStartedElapsed = 0L
 
     /** 电量采样间隔：足够细以归因前台 App，又不至于频繁写盘。 */
     private val batterySampleIntervalMs = 60_000L
@@ -222,56 +248,218 @@ class MonitorService : Service() {
     private val tickRunnable = object : Runnable {
         override fun run() {
             if (!ticking) return
+            handler.postDelayed(this, TICK_MS)
             if (!ReminderEngine.isUnlockedNow(this@MonitorService)) {
                 handleLockState()
                 return
             }
             maybeSampleBattery()
 
-            val now = SystemClock.elapsedRealtime()
-            val gap = (now - lastTickElapsed).coerceAtLeast(0L)
-            lastTickElapsed = now
-            var syncCheckpoint = false
+            if (whitelistPackages.isEmpty()) {
+                isForegroundUnknown = false
+                processTimerTickWithoutWhitelist()
+                return
+            }
 
-            if (TimerMath.isUncertainGap(gap)) {
-                // A delayed main-loop tick does not prove that the device was locked.
-                // Pause the unknown interval; only an observed long lock may reset progress.
-                Log.d(TAG, "unknown active gap ${gap}ms -> progress preserved")
-            } else {
-                for (rt in runtimeRules) {
-                    if (!rt.rule.enabled) continue
-                    val interval = rt.rule.intervalMinutes * 60_000L
-                    val wasWaitingForDelivery = rt.elapsedMs >= interval
-                    val advanced = TimerMath.advance(rt.elapsedMs, interval, gap)
-                    if (!advanced.due) {
-                        rt.elapsedMs = advanced.elapsedMs
-                        continue
-                    }
-                    if (now < rt.nextRetryAtElapsed) {
-                        rt.elapsedMs = interval
-                        continue
-                    }
-                    val delivered = Notifier.fireReminder(
-                        this@MonitorService,
-                        rt.rule.id,
-                        getString(R.string.reminder_title),
-                        enrichWithForeground(rt.rule.text)
-                    )
-                    if (delivered) {
-                        rt.elapsedMs = if (wasWaitingForDelivery) 0L else advanced.elapsedMs
-                        rt.nextRetryAtElapsed = 0L
-                        syncCheckpoint = true
+            val now = SystemClock.elapsedRealtime()
+            if (foregroundQueryInFlight) {
+                freezeUnknownInterval(now)
+                if (now - foregroundQueryStartedElapsed > FOREGROUND_QUERY_TIMEOUT_MS) {
+                    isForegroundUnknown = true
+                    updateForegroundNotification()
+                }
+                return
+            }
+            submitForegroundQuery()
+        }
+    }
+
+    private fun submitForegroundQuery() {
+        val generation = foregroundGeneration
+        val tracker = foregroundTracker
+        val executor = foregroundExecutor
+        foregroundQueryInFlight = true
+        foregroundQueryStartedElapsed = SystemClock.elapsedRealtime()
+        runCatching {
+            executor.execute {
+                val observation = runCatching { tracker.observe(this@MonitorService) }.getOrNull()
+                handler.post {
+                    foregroundQueryInFlight = false
+                    foregroundQueryStartedElapsed = 0L
+                    if (!ticking || generation != foregroundGeneration) return@post
+                    if (observation == null) {
+                        markForegroundUnknown(SystemClock.elapsedRealtime())
                     } else {
-                        rt.elapsedMs = interval
-                        rt.nextRetryAtElapsed = now + DELIVERY_RETRY_MS
+                        processForegroundObservation(observation)
                     }
                 }
             }
-
-            checkpoint(syncCheckpoint)
-            updateForegroundNotification()
-            handler.postDelayed(this, TICK_MS)
+        }.onFailure {
+            foregroundQueryInFlight = false
+            foregroundQueryStartedElapsed = 0L
+            markForegroundUnknown(SystemClock.elapsedRealtime())
         }
+    }
+
+    private fun processTimerTickWithoutWhitelist() {
+        if (!ticking) return
+        if (!ReminderEngine.isUnlockedNow(this)) {
+            handleLockState()
+            return
+        }
+
+        val now = SystemClock.elapsedRealtime()
+        val stateChanged = applyTimingState(
+            unlocked = true,
+            whitelistPaused = false,
+            transitionAtElapsed = now
+        )
+        val delivered = if (timingActive) advanceRules(now, allowDelivery = true) else false
+        checkpoint(delivered || stateChanged)
+        updateForegroundNotification()
+    }
+
+    private fun processForegroundObservation(observation: ForegroundAppTracker.Observation) {
+        if (!ticking) return
+        if (!ReminderEngine.isUnlockedNow(this)) {
+            handleLockState()
+            return
+        }
+        if (!observation.reliable) {
+            markForegroundUnknown(SystemClock.elapsedRealtime())
+            return
+        }
+
+        isForegroundUnknown = false
+        lastForegroundObservation = observation
+        val now = SystemClock.elapsedRealtime()
+        var stateChanged = false
+        if (observation.hasUsageAccess) {
+            observation.transitions.forEach {
+                stateChanged = applyObservedPackage(
+                    it.packageName,
+                    it.changedAtWallMs,
+                    now
+                ) || stateChanged
+            }
+            val pkg = observation.packageName
+            if (pkg != null) {
+                stateChanged = applyObservedPackage(
+                    pkg,
+                    observation.changedAtWallMs,
+                    now
+                ) || stateChanged
+            }
+        } else {
+            stateChanged = applyTimingState(
+                unlocked = true,
+                whitelistPaused = false,
+                transitionAtElapsed = now
+            )
+        }
+
+        val observedThrough = wallTimeToElapsed(observation.observedThroughWallMs, now)
+        val observationAge = (System.currentTimeMillis() - observation.observedThroughWallMs)
+            .coerceAtLeast(0L)
+        val mayDeliver = observation.observedThroughWallMs > 0L &&
+            observationAge <= MAX_DELIVERY_OBSERVATION_AGE_MS
+        val delivered = if (timingActive) {
+            advanceRules(observedThrough, allowDelivery = mayDeliver)
+        } else {
+            false
+        }
+        checkpoint(delivered || stateChanged)
+        updateForegroundNotification()
+    }
+
+    private fun applyObservedPackage(
+        packageName: String,
+        changedAtWallMs: Long,
+        nowElapsed: Long
+    ): Boolean {
+        val whitelistPaused = packageName in whitelistPackages
+        val observedAt = wallTimeToElapsed(changedAtWallMs, nowElapsed)
+        val transitionAt = if (!whitelistPaused && activeNotBeforeElapsed > 0L) {
+            maxOf(observedAt, activeNotBeforeElapsed)
+        } else {
+            observedAt
+        }
+        if (timingActive && whitelistPaused) {
+            advanceRules(transitionAt, allowDelivery = false)
+        }
+        return applyTimingState(
+            unlocked = true,
+            whitelistPaused = whitelistPaused,
+            transitionAtElapsed = transitionAt
+        )
+    }
+
+    private fun advanceRules(toElapsed: Long, allowDelivery: Boolean): Boolean {
+        val effectiveTo = maxOf(toElapsed, lastTickElapsed)
+        val gap = effectiveTo - lastTickElapsed
+        lastTickElapsed = effectiveTo
+        if (TimerMath.isUncertainGap(gap)) {
+            Log.d(TAG, "unknown active gap ${gap}ms -> progress preserved")
+            return false
+        }
+
+        var deliveredAny = false
+        for (rt in runtimeRules) {
+            if (!rt.rule.enabled) continue
+            val interval = rt.rule.intervalMinutes * 60_000L
+            val wasWaitingForDelivery = rt.elapsedMs >= interval
+            if (wasWaitingForDelivery && !allowDelivery) continue
+            val advanced = TimerMath.advance(rt.elapsedMs, interval, gap)
+            if (!advanced.due) {
+                rt.elapsedMs = advanced.elapsedMs
+                continue
+            }
+            if (!allowDelivery) {
+                rt.elapsedMs = interval
+                continue
+            }
+            if (effectiveTo < rt.nextRetryAtElapsed) {
+                rt.elapsedMs = interval
+                continue
+            }
+            val delivered = Notifier.fireReminder(
+                this,
+                rt.rule.id,
+                getString(R.string.reminder_title),
+                enrichWithForeground(rt.rule.text)
+            )
+            if (delivered) {
+                rt.elapsedMs = if (wasWaitingForDelivery) 0L else advanced.elapsedMs
+                rt.nextRetryAtElapsed = 0L
+                deliveredAny = true
+            } else {
+                rt.elapsedMs = interval
+                rt.nextRetryAtElapsed = effectiveTo + DELIVERY_RETRY_MS
+            }
+        }
+        return deliveredAny
+    }
+
+    private fun wallTimeToElapsed(changedAtWallMs: Long, nowElapsed: Long): Long {
+        val nowWall = System.currentTimeMillis()
+        if (changedAtWallMs <= 0L || changedAtWallMs > nowWall) return nowElapsed
+        val age = (nowWall - changedAtWallMs).coerceIn(0L, nowElapsed)
+        return nowElapsed - age
+    }
+
+    private fun freezeUnknownInterval(now: Long) {
+        lastTickElapsed = now
+        checkpoint(sync = false)
+    }
+
+    private fun markForegroundUnknown(now: Long) {
+        isForegroundUnknown = true
+        freezeUnknownInterval(now)
+        updateForegroundNotification()
+    }
+
+    private fun invalidateForegroundQuery() {
+        foregroundGeneration++
     }
 
     override fun attachBaseContext(newBase: Context) {
@@ -313,6 +501,7 @@ class MonitorService : Service() {
     private fun restoreState() {
         val now = SystemClock.elapsedRealtime()
         val currentUnlocked = ReminderEngine.isUnlockedNow(this)
+        whitelistPackages = WhitelistStore.load(this)
         val checkpoint = prefs.getLong(RuleStore.KEY_CHECKPOINT_ELAPSED, 0L)
         val sameBoot = TimerMath.isSameBoot(
             savedBootCount = prefs.getInt(RuleStore.KEY_BOOT_COUNT, -1),
@@ -320,39 +509,62 @@ class MonitorService : Service() {
             checkpointElapsed = checkpoint,
             nowElapsed = now
         )
-        val wasUnlocked = prefs.getBoolean(RuleStore.KEY_WAS_UNLOCKED, false)
-        val savedLockedAt = prefs.getLong(RuleStore.KEY_LOCKED_AT_ELAPSED, 0L)
+        val wasTimingActive = prefs.getBoolean(RuleStore.KEY_WAS_TIMING_ACTIVE, false)
+        val savedPausedAt = prefs.getLong(RuleStore.KEY_PAUSED_AT_ELAPSED, 0L)
+        val savedPauseIncludesWhitelist = prefs.getBoolean(
+            RuleStore.KEY_PAUSE_INCLUDES_WHITELIST,
+            false
+        )
         val savedProgress = if (sameBoot) RuleStore.loadProgress(prefs) else emptyMap()
+        val currentTimingActive = currentUnlocked && when {
+            !sameBoot -> true
+            whitelistPackages.isEmpty() -> true
+            wasTimingActive -> true
+            else -> false
+        }
+        val currentWhitelistPaused = currentUnlocked && !currentTimingActive &&
+            savedPauseIncludesWhitelist && whitelistPackages.isNotEmpty()
 
         runtimeRules = RuleStore.load(this).map { Rt(it, savedProgress[it.id] ?: 0L) }
-        val pendingLongLock = !wasUnlocked && currentUnlocked &&
-            savedLockedAt in 1..now &&
-            TimerMath.shouldResetAfterLock(now - savedLockedAt)
-        if (!sameBoot || pendingLongLock) {
+        val pendingLongPause = !wasTimingActive && currentTimingActive &&
+            savedPausedAt in 1..now &&
+            TimerMath.shouldResetAfterLock(now - savedPausedAt)
+        if (!sameBoot || pendingLongPause) {
             runtimeRules.forEach { it.elapsedMs = 0L }
         }
 
-        lockedAtElapsed = when {
-            currentUnlocked -> 0L
-            sameBoot && !wasUnlocked && savedLockedAt in 1..now -> savedLockedAt
+        pausedAtElapsed = when {
+            currentTimingActive -> 0L
+            sameBoot && !wasTimingActive && savedPausedAt in 1..now -> savedPausedAt
             else -> now
         }
         isUnlocked = currentUnlocked
+        isWhitelistPaused = currentWhitelistPaused
+        pauseIncludesWhitelist = !currentTimingActive && savedPauseIncludesWhitelist
+        timingActive = currentTimingActive
+        activeNotBeforeElapsed = if (currentUnlocked && !currentTimingActive &&
+            !savedPauseIncludesWhitelist
+        ) {
+            now
+        } else {
+            0L
+        }
         lastTickElapsed = now
+        if (currentWhitelistPaused) dismissVisibleReminders()
         checkpoint(sync = true)
         if (currentUnlocked) startTicking()
     }
 
     override fun onDestroy() {
         ticking = false
+        invalidateForegroundQuery()
         handler.removeCallbacksAndMessages(null)
+        foregroundExecutor.shutdownNow()
         if (receiverRegistered) {
             runCatching { unregisterReceiver(screenReceiver) }
             runCatching { unregisterReceiver(powerReceiver) }
             receiverRegistered = false
         }
-        isRunning = false
-        isUnlocked = false
         if (::prefs.isInitialized) {
             if (prefs.getBoolean(RuleStore.KEY_USER_STOPPED, false)) {
                 RuleStore.clearProgress(
@@ -366,6 +578,11 @@ class MonitorService : Service() {
                 checkpoint(sync = true)
             }
         }
+        isRunning = false
+        isUnlocked = false
+        isWhitelistPaused = false
+        isForegroundUnknown = false
+        timingActive = false
         instance = null
         OverlayReminder.dismissAll()
         super.onDestroy()
@@ -374,27 +591,85 @@ class MonitorService : Service() {
     private fun handleLockState() {
         val currentUnlocked = ReminderEngine.isUnlockedNow(this)
         if (currentUnlocked == isUnlocked) return
+        invalidateForegroundQuery()
         val now = SystemClock.elapsedRealtime()
         maybeSampleBattery()
-        if (!currentUnlocked) {
-            isUnlocked = false
-            lockedAtElapsed = now
-            lastTickElapsed = now
-            pauseTicking()
-        } else {
-            if (lockedAtElapsed in 1..now) {
-                val lockDuration = now - lockedAtElapsed
-                runtimeRules.forEach {
-                    it.elapsedMs = TimerMath.elapsedAfterUnlock(it.elapsedMs, lockDuration)
-                }
-            }
+        if (currentUnlocked && whitelistPackages.isNotEmpty()) {
+            // Wait for a post-unlock UsageEvents query before ending the continuous pause.
             isUnlocked = true
-            lockedAtElapsed = 0L
-            lastTickElapsed = now
+            activeNotBeforeElapsed = now
             startTicking()
+            checkpoint(sync = true)
+            updateForegroundNotification()
+            return
         }
+        applyTimingState(
+            unlocked = currentUnlocked,
+            whitelistPaused = false,
+            transitionAtElapsed = now
+        )
+        if (currentUnlocked) startTicking() else pauseTicking()
         checkpoint(sync = true)
         updateForegroundNotification()
+    }
+
+    private fun applyTimingState(
+        unlocked: Boolean,
+        whitelistPaused: Boolean,
+        transitionAtElapsed: Long
+    ): Boolean {
+        val transitionAt = transitionAtElapsed.coerceAtLeast(1L)
+        val normalizedWhitelistPause = unlocked && whitelistPaused
+        val nextTimingActive = unlocked && !normalizedWhitelistPause
+        var changed = unlocked != isUnlocked || normalizedWhitelistPause != isWhitelistPaused
+
+        if (nextTimingActive != timingActive) {
+            if (nextTimingActive) {
+                if (pausedAtElapsed in 1..transitionAt) {
+                    val pauseDuration = transitionAt - pausedAtElapsed
+                    runtimeRules.forEach {
+                        it.elapsedMs = TimerMath.elapsedAfterPause(it.elapsedMs, pauseDuration)
+                    }
+                }
+                pausedAtElapsed = 0L
+                pauseIncludesWhitelist = false
+                activeNotBeforeElapsed = 0L
+            } else {
+                pausedAtElapsed = TimerMath.pauseStartedAt(pausedAtElapsed, transitionAt)
+                pauseIncludesWhitelist = normalizedWhitelistPause
+            }
+            timingActive = nextTimingActive
+            lastTickElapsed = maxOf(lastTickElapsed, transitionAt)
+            changed = true
+        } else if (!nextTimingActive) {
+            val pauseStart = TimerMath.pauseStartedAt(pausedAtElapsed, transitionAt)
+            if (pauseStart != pausedAtElapsed ||
+                normalizedWhitelistPause && !pauseIncludesWhitelist
+            ) {
+                pausedAtElapsed = pauseStart
+                pauseIncludesWhitelist = pauseIncludesWhitelist || normalizedWhitelistPause
+                changed = true
+            }
+        }
+
+        if (normalizedWhitelistPause && !isWhitelistPaused) dismissVisibleReminders()
+        isUnlocked = unlocked
+        isWhitelistPaused = normalizedWhitelistPause
+        return changed
+    }
+
+    private fun dismissVisibleReminders() {
+        Notifier.dismissInterruptions(this)
+    }
+
+    private fun cachedWhitelistPause(): Boolean {
+        if (whitelistPackages.isEmpty()) return false
+        val observation = lastForegroundObservation
+        return when {
+            observation == null || !observation.reliable -> pauseIncludesWhitelist
+            !observation.hasUsageAccess -> false
+            else -> observation.packageName in whitelistPackages
+        }
     }
 
     private fun startTicking() {
@@ -414,8 +689,9 @@ class MonitorService : Service() {
             progress = runtimeRules.associate { it.rule.id to it.elapsedMs },
             checkpointElapsed = SystemClock.elapsedRealtime(),
             bootCount = currentBootCount,
-            wasUnlocked = isUnlocked,
-            lockedAtElapsed = lockedAtElapsed,
+            wasTimingActive = timingActive,
+            pausedAtElapsed = pausedAtElapsed,
+            pauseIncludesWhitelist = pauseIncludesWhitelist,
             sync = sync
         )
     }
@@ -425,6 +701,24 @@ class MonitorService : Service() {
         runtimeRules = rules.map { Rt(it, oldElapsed[it.id] ?: 0L) }
         checkpoint(sync = true)
         updateForegroundNotification()
+    }
+
+    private fun replaceWhitelist(packages: Set<String>) {
+        invalidateForegroundQuery()
+        whitelistPackages = packages
+        if (packages.isEmpty()) isForegroundUnknown = false
+        if (!initialized || !isUnlocked) return
+        val now = SystemClock.elapsedRealtime()
+        val whitelistPaused = cachedWhitelistPause()
+        if (applyTimingState(
+                unlocked = true,
+                whitelistPaused = whitelistPaused,
+                transitionAtElapsed = now
+            )
+        ) {
+            checkpoint(sync = true)
+            updateForegroundNotification()
+        }
     }
 
     private fun memorySnapshot(): List<RuleView> =
@@ -476,6 +770,8 @@ class MonitorService : Service() {
 
     private fun fgStatusText(): String {
         if (!isUnlocked) return getString(R.string.status_locked_paused)
+        if (isWhitelistPaused) return getString(R.string.status_whitelist_paused)
+        if (isForegroundUnknown) return getString(R.string.status_foreground_unknown)
         val enabled = runtimeRules.filter { it.rule.enabled }
         if (enabled.isEmpty()) return getString(R.string.fg_no_enabled_rules)
         val nextMs = enabled.minOf {

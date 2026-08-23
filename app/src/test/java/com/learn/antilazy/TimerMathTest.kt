@@ -37,7 +37,7 @@ class TimerMathTest {
     @Test
     fun unlockAfterShortLockKeepsProgressAndResumes() {
         val elapsedBeforeLock = 45_000L
-        val elapsedAfterUnlock = TimerMath.elapsedAfterUnlock(elapsedBeforeLock, 60_000)
+        val elapsedAfterUnlock = TimerMath.elapsedAfterPause(elapsedBeforeLock, 60_000)
 
         val afterFirstUnlockedSecond = TimerMath.advance(elapsedAfterUnlock, 60_000, 1_000)
 
@@ -47,7 +47,7 @@ class TimerMathTest {
 
     @Test
     fun unlockAfterLongLockResetsThenResumesFromZero() {
-        val elapsedAfterUnlock = TimerMath.elapsedAfterUnlock(45_000, 60_001)
+        val elapsedAfterUnlock = TimerMath.elapsedAfterPause(45_000, 60_001)
 
         val afterFirstUnlockedSecond = TimerMath.advance(elapsedAfterUnlock, 60_000, 1_000)
 
@@ -59,6 +59,25 @@ class TimerMathTest {
     fun delayedUnknownGapIsDetectedWithoutCallingItALock() {
         assertFalse(TimerMath.isUncertainGap(60_000))
         assertTrue(TimerMath.isUncertainGap(60_001))
+    }
+
+    @Test
+    fun shortWhitelistVisitPausesAndKeepsProgress() {
+        assertEquals(45_000, TimerMath.elapsedAfterPause(45_000, 60_000))
+    }
+
+    @Test
+    fun longWhitelistVisitResetsProgress() {
+        assertEquals(0, TimerMath.elapsedAfterPause(45_000, 60_001))
+    }
+
+    @Test
+    fun lockDuringWhitelistKeepsOneContinuousPauseWindow() {
+        val whitelistStartedAt = TimerMath.pauseStartedAt(0, 10_000)
+        val stillPausedAfterLock = TimerMath.pauseStartedAt(whitelistStartedAt, 40_000)
+
+        assertEquals(10_000, stillPausedAfterLock)
+        assertEquals(0, TimerMath.elapsedAfterPause(45_000, 70_001 - stillPausedAfterLock))
     }
 
     @Test

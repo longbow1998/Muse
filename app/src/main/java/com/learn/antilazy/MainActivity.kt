@@ -63,6 +63,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var ibTest: TextView
     private lateinit var btnAddRule: Button
     private lateinit var llUsageEntry: View
+    private lateinit var llWhitelistEntry: View
+    private lateinit var tvWhitelistSummary: TextView
     private lateinit var tvGuideLink: TextView
     private lateinit var llPermissions: LinearLayout
     private lateinit var llRules: LinearLayout
@@ -76,6 +78,7 @@ class MainActivity : AppCompatActivity() {
 
     /** 规则列表的本地事实源（编辑后立即回显，不依赖服务是否运行） */
     private var uiRules: List<Rule> = emptyList()
+    private var whitelistCount = 0
     private var rowsSignature = ""
     private var snapElapsed: Map<Long, Long> = emptyMap()
 
@@ -110,6 +113,8 @@ class MainActivity : AppCompatActivity() {
         ibTest = findViewById(R.id.ib_test)
         btnAddRule = findViewById(R.id.btn_add_rule)
         llUsageEntry = findViewById(R.id.ll_usage_entry)
+        llWhitelistEntry = findViewById(R.id.ll_whitelist_entry)
+        tvWhitelistSummary = findViewById(R.id.tv_whitelist_summary)
         tvGuideLink = findViewById(R.id.tv_guide_link)
         llPermissions = findViewById(R.id.ll_permissions)
         llRules = findViewById(R.id.ll_rules)
@@ -153,6 +158,10 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, UsageStatsActivity::class.java))
         }
 
+        llWhitelistEntry.setOnClickListener {
+            startActivity(Intent(this, WhitelistActivity::class.java))
+        }
+
         tvGuideLink.setOnClickListener { showKeepAliveGuide() }
 
         ibMenu.setOnClickListener { anchor ->
@@ -192,6 +201,7 @@ class MainActivity : AppCompatActivity() {
         // 以落盘的运行标记为准：进程被杀后 companion 变量会失真。
         desiredRunning = MonitorService.wasRunningBefore(this)
         switchToggle.isChecked = desiredRunning
+        renderWhitelistSummary()
         renderPermissionList()
         lastStartRequestAt = 0L
         reconcileService()
@@ -321,7 +331,7 @@ class MainActivity : AppCompatActivity() {
         val stalled = active && unlockedNow &&
             ReminderEngine.lastCheckpointAgeMs(this) > 5 * 60_000L
 
-        // 状态机：已停止 / 服务恢复中 / 锁屏暂停 / 运行中
+        // 状态机：已停止 / 服务恢复中 / 锁屏暂停 / 白名单暂停 / 运行中
         val enabledCount = uiRules.count { it.enabled }
         val (headRes, headArg, headColor) = when {
             !active -> Triple(R.string.status_stopped, -1, R.color.text_secondary)
@@ -331,6 +341,10 @@ class MainActivity : AppCompatActivity() {
                 Triple(R.string.status_locked_paused, -1, R.color.status_paused)
             !MonitorService.isUnlocked ->
                 Triple(R.string.status_locked_paused, -1, R.color.status_paused)
+            MonitorService.isWhitelistPaused ->
+                Triple(R.string.status_whitelist_paused, -1, R.color.status_paused)
+            MonitorService.isForegroundUnknown ->
+                Triple(R.string.status_foreground_unknown, -1, R.color.status_error)
             stalled -> Triple(R.string.status_stalled_warn, -1, R.color.status_error)
             enabledCount == 0 -> Triple(R.string.no_enabled_rules, -1, R.color.status_paused)
             else -> Triple(R.string.status_head_running, enabledCount, R.color.status_active)
@@ -346,7 +360,10 @@ class MainActivity : AppCompatActivity() {
 
         // 大号倒计时：仅运行中且有启用规则时显示
         val enabledRules = uiRules.filter { it.enabled }
-        if (active && MonitorService.isRunning && MonitorService.isUnlocked && enabledRules.isNotEmpty()) {
+        if (active && MonitorService.isRunning && MonitorService.isUnlocked &&
+            !MonitorService.isWhitelistPaused && !MonitorService.isForegroundUnknown &&
+            enabledRules.isNotEmpty()
+        ) {
             val nextMs = enabledRules.minOf { rule ->
                 (rule.intervalMinutes * 60_000L - (snapElapsed[rule.id] ?: 0L))
                     .coerceAtLeast(0L)
@@ -382,6 +399,9 @@ class MainActivity : AppCompatActivity() {
         if (active && !OverlayReminder.canShow(this)) {
             appendLine(getString(R.string.overlay_missing_warn))
         }
+        if (active && whitelistCount > 0 && !UsageStatsRepository.hasUsageAccess(this)) {
+            appendLine(getString(R.string.whitelist_inactive_warning), R.color.status_error)
+        }
         if (stalled && MonitorService.isRunning) {
             appendLine(getString(R.string.status_stalled_warn), R.color.status_error)
         }
@@ -403,6 +423,15 @@ class MainActivity : AppCompatActivity() {
 
         tvStatusDetail.text = sb
         tvStatusDetail.visibility = if (sb.isEmpty()) View.GONE else View.VISIBLE
+    }
+
+    private fun renderWhitelistSummary() {
+        whitelistCount = WhitelistStore.load(this).size
+        tvWhitelistSummary.text = if (whitelistCount == 0) {
+            getString(R.string.whitelist_entry_none)
+        } else {
+            getString(R.string.whitelist_entry_count_fmt, whitelistCount)
+        }
     }
 
     /** 软键盘弹出时避免按钮被遮挡：对话框内容包一层滚动容器 */
