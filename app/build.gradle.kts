@@ -11,8 +11,8 @@ android {
         applicationId = "com.learn.antilazy"
         minSdk = 26
         targetSdk = 34
-        versionCode = 18
-        versionName = "1.10.0"
+        versionCode = 19
+        versionName = "1.10.1"
     }
 
     // 固定签名：本地与 CI 产物同签名，覆盖安装不再冲突。
