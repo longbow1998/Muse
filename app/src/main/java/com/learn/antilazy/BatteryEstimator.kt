@@ -26,9 +26,15 @@ object BatteryEstimator {
     data class DayEstimate(
         /** 当天估算总放电量（mAh，含无法归因到 App 的部分）。 */
         val totalDrainMah: Double,
-        /** 包名 -> 估算消耗（mAh）。 */
+        /** 包名 -> 估算消耗（mAh）。SYSTEM_AND_BG_KEY 为未能归因到前台 App 的部分。 */
         val perAppMah: Map<String, Double>
-    )
+    ) {
+
+        companion object {
+            /** 灭屏/后台/系统等无法归因到前台 App 的消耗所用的键。 */
+            const val SYSTEM_AND_BG_KEY = "__system_and_background__"
+        }
+    }
 
     fun capacityMah(context: Context): Int =
         ReminderEngine.prefs(context).getInt(KEY_CAPACITY_MAH, DEFAULT_CAPACITY_MAH)
@@ -95,6 +101,7 @@ object BatteryEstimator {
         }
 
         var totalDrainUah = 0L
+        var attributedUah = 0L
         val perAppUah = HashMap<String, Long>()
         for (i in 1 until points.size) {
             val prev = points[i - 1]
@@ -108,8 +115,15 @@ object BatteryEstimator {
             val totalSec = fgSeconds.values.sum()
             if (totalSec <= 0) continue
             fgSeconds.forEach { (pkg, sec) ->
-                perAppUah[pkg] = (perAppUah[pkg] ?: 0L) + drainUah * sec / totalSec
+                val share = drainUah * sec / totalSec
+                perAppUah[pkg] = (perAppUah[pkg] ?: 0L) + share
+                attributedUah += share
             }
+        }
+        val unattributed = totalDrainUah - attributedUah
+        if (unattributed > 0) {
+            perAppUah[DayEstimate.SYSTEM_AND_BG_KEY] =
+                (perAppUah[DayEstimate.SYSTEM_AND_BG_KEY] ?: 0L) + unattributed
         }
         return DayEstimate(
             totalDrainMah = totalDrainUah / 1000.0,
@@ -117,7 +131,11 @@ object BatteryEstimator {
         )
     }
 
-    /** 窗口 [startMs, endMs] 内各包名前台秒数（UsageEvents）。 */
+    /**
+     * 窗口 [startMs, endMs] 内各包名前台秒数（UsageEvents 重放）。
+     * 与使用统计同规则：灭屏/锁屏瞬间结束当前段（API 30+ 事件），
+     * 灭屏期间不计入任何包——其耗电由 SYSTEM_AND_BG_KEY 承接。
+     */
     private fun foregroundSeconds(
         context: Context,
         startMs: Long,
@@ -128,28 +146,40 @@ object BatteryEstimator {
         val seconds = HashMap<String, Long>()
         var currentPkg: String? = null
         var resumedAt = 0L
+        var sessionUsable = true
         val e = UsageEvents.Event()
+
+        fun closeAt(t: Long) {
+            val pkg = currentPkg ?: return
+            addSeconds(seconds, pkg, resumedAt, t, startMs, endMs)
+            currentPkg = null
+        }
+
         while (events.hasNextEvent()) {
             events.getNextEvent(e)
             when (e.eventType) {
                 UsageEvents.Event.ACTIVITY_RESUMED -> {
-                    if (currentPkg != null && e.timeStamp > resumedAt) {
-                        addSeconds(seconds, currentPkg!!, resumedAt, e.timeStamp, startMs, endMs)
+                    closeAt(e.timeStamp)
+                    if (sessionUsable) {
+                        currentPkg = e.packageName
+                        resumedAt = e.timeStamp
                     }
-                    currentPkg = e.packageName
-                    resumedAt = e.timeStamp
                 }
                 UsageEvents.Event.ACTIVITY_PAUSED -> {
-                    if (e.packageName == currentPkg) {
-                        addSeconds(seconds, currentPkg!!, resumedAt, e.timeStamp, startMs, endMs)
-                        currentPkg = null
-                    }
+                    if (e.packageName == currentPkg) closeAt(e.timeStamp)
+                }
+                UsageEvents.Event.SCREEN_NON_INTERACTIVE,
+                UsageEvents.Event.KEYGUARD_SHOWN -> {
+                    sessionUsable = false
+                    closeAt(e.timeStamp)
+                }
+                UsageEvents.Event.SCREEN_INTERACTIVE,
+                UsageEvents.Event.KEYGUARD_HIDDEN -> {
+                    sessionUsable = true
                 }
             }
         }
-        if (currentPkg != null) {
-            addSeconds(seconds, currentPkg!!, resumedAt, endMs, startMs, endMs)
-        }
+        closeAt(endMs)
         return seconds.filterValues { it > 0 }
     }
 

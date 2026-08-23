@@ -86,6 +86,7 @@
 
     <string name="battery_section_title">Battery usage (estimated)</string>
     <string name="battery_summary_fmt">~%1$s mAh drained today (%2$s%% of battery capacity)</string>
+    <string name="battery_system_and_bg">System &amp; background (standby, sync, etc.)</string>
     <string name="battery_disclaimer">Android does not expose real per-app battery drain to third parties; figures are local estimates based on foreground-time share.</string>
     <string name="battery_empty">Not enough samples yet — shown after some usage.</string>
     <string name="battery_set_capacity">Set battery capacity (mAh)</string>

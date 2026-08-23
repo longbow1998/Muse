@@ -85,6 +85,7 @@
 
     <string name="battery_section_title">今日耗电估算</string>
     <string name="battery_summary_fmt">今日总消耗约 %1$s mAh（占电池容量 %2$s%%）</string>
+    <string name="battery_system_and_bg">系统与后台（待机、同步等）</string>
     <string name="battery_disclaimer">系统不向第三方提供分应用真实耗电，以上为按前台时长占比的本机估算，仅供参考。</string>
     <string name="battery_empty">暂无足够采样数据，使用一段时间后显示。</string>
     <string name="battery_set_capacity">设置电池容量（mAh）</string>

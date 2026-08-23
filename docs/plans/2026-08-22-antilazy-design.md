@@ -306,3 +306,17 @@ AppCompatActivity + Theme.Material3.DayNight：
 4. 「今日使用统计」更名为「使用统计」（含今日/7天/30天三档）。
 5. 应用名显示为包名（如 com.tencent.mm）：Manifest 增加 <queries> 声明
    带桌面图标的应用可见性——非权限、无需授权，仅用于解析真实应用名。
+
+### 2026-08-23 统计口径修复：灭屏不计时 + 耗电归因重构（v1.9.2）
+
+1. 使用统计虚高（严重）：系统 totalTimeInForeground 在灭屏/锁屏期间不结束
+   最后一个前台 App，整夜锁屏被记给睡前最后一个应用。
+   改为重放 UsageEvents 原始事件：RESUMED/PAUSED 组段，
+   SCREEN_NON_INTERACTIVE / KEYGUARD_SHOWN（API 30+）瞬间强制关段；
+   桌面/系统UI/本应用不计入；API<30 无屏幕事件，退化为原始精度。
+2. 耗电估算同规则裁剪前台分摊；无法归因到前台 App 的消耗
+   （灭屏、后台同步、待机）单列「系统与后台」，不再硬摊给前台应用。
+   Android 不向第三方开放分应用真实耗电（BATTERY_STATS 为
+   signature|privileged），此为专业耗电 App 同款估算思路。
+3. 插拔电广播（POWER_CONNECTED/DISCONNECTED）瞬间即时采样，
+   充电区间电量边界更干净。

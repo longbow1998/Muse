@@ -212,6 +212,13 @@ class MonitorService : Service() {
         }
     }
 
+    /** 插拔电瞬间立即采样：把充电区间的电量边界切干净。 */
+    private val powerReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            BatteryEstimator.takeSample(context)
+        }
+    }
+
     private val tickRunnable = object : Runnable {
         override fun run() {
             if (!ticking) return
@@ -341,6 +348,7 @@ class MonitorService : Service() {
         handler.removeCallbacksAndMessages(null)
         if (receiverRegistered) {
             runCatching { unregisterReceiver(screenReceiver) }
+            runCatching { unregisterReceiver(powerReceiver) }
             receiverRegistered = false
         }
         isRunning = false
@@ -432,6 +440,13 @@ class MonitorService : Service() {
                 addAction(Intent.ACTION_SCREEN_ON)
                 addAction(Intent.ACTION_SCREEN_OFF)
                 addAction(Intent.ACTION_USER_PRESENT)
+            }
+        )
+        registerReceiver(
+            powerReceiver,
+            IntentFilter().apply {
+                addAction(Intent.ACTION_POWER_CONNECTED)
+                addAction(Intent.ACTION_POWER_DISCONNECTED)
             }
         )
         receiverRegistered = true

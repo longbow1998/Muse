@@ -297,7 +297,12 @@ class UsageStatsActivity : androidx.appcompat.app.AppCompatActivity() {
         }
         sorted.forEach { (pkg, mah) ->
             val pct = if (capacity > 0) mah / capacity * 100 else 0.0
-            addBatteryText("${appLabel(pkg)} · ${trimNum(mah)} mAh（${trimNum(pct)}%）")
+            val name = if (pkg == BatteryEstimator.DayEstimate.SYSTEM_AND_BG_KEY) {
+                getString(R.string.battery_system_and_bg)
+            } else {
+                appLabel(pkg)
+            }
+            addBatteryText("$name · ${trimNum(mah)} mAh（${trimNum(pct)}%）")
         }
     }
 
