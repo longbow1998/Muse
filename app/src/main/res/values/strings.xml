@@ -79,9 +79,11 @@
     <string name="perm_overlay">Display over other apps (strong reminders)</string>
     <string name="perm_usage">Usage access (statistics, foreground awareness &amp; app whitelist)</string>
     <string name="perm_battery">Ignore battery optimizations (recommended)</string>
+    <string name="perm_autostart">Auto-start (recover after background reclaim)</string>
     <string name="perm_status_on">On ✓</string>
     <string name="perm_status_off">Off</string>
-    <string name="perms_hint">Paths differ across phones. If something cannot be enabled here (especially battery optimization), follow the “Keep-alive guide” below step by step.</string>
+    <string name="perm_status_manual">Check manually · Tap to open settings</string>
+    <string name="perms_hint">Android cannot read OEM auto-start status, so confirm it manually in Settings. Other paths vary by phone; if something cannot be enabled here, follow the “Keep-alive guide” below.</string>
     <string name="notif_required_title">Notification permission required</string>
     <string name="notif_required_message">Reminders are delivered as notifications. Please allow “Muse” to send notifications, otherwise you may never see them.</string>
 

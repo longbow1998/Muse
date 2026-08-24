@@ -78,9 +78,11 @@
     <string name="perm_overlay">显示在其他应用上层（强提醒）</string>
     <string name="perm_usage">使用情况访问（应用统计、前台感知与白名单）</string>
     <string name="perm_battery">忽略电池优化（降低被杀概率，建议）</string>
+    <string name="perm_autostart">自启动（后台被回收后自动恢复）</string>
     <string name="perm_status_on">已开启 ✓</string>
     <string name="perm_status_off">未开启</string>
-    <string name="perms_hint">不同手机的设置路径可能不同；若此处未能成功开启（尤其电池优化），请按下方「后台保活指南」逐步设置。</string>
+    <string name="perm_status_manual">需手动确认 · 点击打开设置</string>
+    <string name="perms_hint">Android 无法读取厂商自启动状态，请在设置中手动确认。其他设置路径可能因手机而异；若未能成功开启，请按下方「后台保活指南」逐步设置。</string>
     <string name="notif_required_title">需要通知权限</string>
     <string name="notif_required_message">到点提醒通过通知展示。请允许「缪思」发送通知，否则可能收不到任何提醒。</string>
 

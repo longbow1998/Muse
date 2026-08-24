@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.app.AlertDialog
 import android.app.DownloadManager
 import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -596,27 +597,32 @@ class MainActivity : AppCompatActivity() {
     private class PermRow(
         val titleRes: Int,
         val iconRes: Int,
-        val granted: Boolean,
+        val granted: Boolean?,
         val action: () -> Unit
     )
 
-    private fun buildPermRows(): List<PermRow> = listOf(
-        PermRow(R.string.perm_notification, R.drawable.ic_bell, Notifier.canPostReminders(this)) {
+    private fun buildPermRows(): List<PermRow> = buildList {
+        add(PermRow(R.string.perm_notification, R.drawable.ic_bell, Notifier.canPostReminders(this@MainActivity)) {
             requestOrOpenNotification()
-        },
-        PermRow(R.string.perm_overlay, R.drawable.ic_overlay, OverlayReminder.canShow(this)) {
+        })
+        add(PermRow(R.string.perm_overlay, R.drawable.ic_overlay, OverlayReminder.canShow(this@MainActivity)) {
             requestOverlayPermission()
-        },
-        PermRow(R.string.perm_usage, R.drawable.ic_usage, UsageStatsRepository.hasUsageAccess(this)) {
+        })
+        add(PermRow(R.string.perm_usage, R.drawable.ic_usage, UsageStatsRepository.hasUsageAccess(this@MainActivity)) {
             openUsageAccessSettings()
-        },
-        PermRow(
+        })
+        add(PermRow(
             R.string.perm_battery, R.drawable.ic_battery,
             batteryManager().isIgnoringBatteryOptimizations(packageName)
         ) {
             requestIgnoreBatteryOptimizations()
+        })
+        if (isColorOsFamily()) {
+            add(PermRow(R.string.perm_autostart, R.drawable.ic_autostart, null) {
+                openAutoStartSettings()
+            })
         }
-    )
+    }
 
     private fun renderPermissionList() {
         llPermissions.removeAllViews()
@@ -647,9 +653,17 @@ class MainActivity : AppCompatActivity() {
                 setTextColor(getColor(R.color.text_primary))
             }
             val status = TextView(this).apply {
-                text = getString(if (row.granted) R.string.perm_status_on else R.string.perm_status_off)
+                text = getString(when (row.granted) {
+                    true -> R.string.perm_status_on
+                    false -> R.string.perm_status_off
+                    null -> R.string.perm_status_manual
+                })
                 textSize = 12f
-                setTextColor(getColor(if (row.granted) R.color.perm_on else R.color.perm_off))
+                setTextColor(getColor(when (row.granted) {
+                    true -> R.color.perm_on
+                    false -> R.color.perm_off
+                    null -> R.color.text_secondary
+                }))
             }
             col.addView(title)
             col.addView(status)
@@ -680,7 +694,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestOrOpenNotification() {
-        if (Notifier.canPostReminders(this)) return
+        if (Notifier.canPostReminders(this)) {
+            openNotificationSettings()
+            return
+        }
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
             shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)
@@ -727,7 +744,6 @@ class MainActivity : AppCompatActivity() {
         OverlayReminder.canShow(this) || Notifier.canPostReminders(this)
 
     private fun requestOverlayPermission() {
-        if (OverlayReminder.canShow(this)) return
         runCatching {
             startActivity(
                 Intent(
@@ -741,7 +757,12 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("BatteryLife") // 仅经 GitHub 侧载分发；直达授权对话框的成功率最高。
     private fun requestIgnoreBatteryOptimizations() {
         val pm = batteryManager()
-        if (pm.isIgnoringBatteryOptimizations(packageName)) return
+        if (pm.isIgnoringBatteryOptimizations(packageName)) {
+            runCatching {
+                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            }
+            return
+        }
         val directDialogOk = runCatching {
             startActivity(
                 Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
@@ -752,6 +773,28 @@ class MainActivity : AppCompatActivity() {
             runCatching {
                 startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
             }
+        }
+    }
+
+    private fun isColorOsFamily(): Boolean = when (Build.MANUFACTURER.lowercase(Locale.ROOT)) {
+        "oppo", "oneplus", "realme" -> true
+        else -> false
+    }
+
+    private fun openAutoStartSettings() {
+        val components = listOf(
+            ComponentName("com.oplus.battery", "com.oplus.startupapp.view.StartupAppListActivity"),
+            ComponentName("com.coloros.safecenter", "com.coloros.safecenter.startupapp.StartupAppListActivity"),
+            ComponentName("com.oppo.safe", "com.oppo.safe.permission.startup.StartupAppListActivity")
+        )
+        for (component in components) {
+            if (runCatching { startActivity(Intent().setComponent(component)) }.isSuccess) return
+        }
+        runCatching {
+            startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                    .setData(Uri.parse("package:$packageName"))
+            )
         }
     }
 
